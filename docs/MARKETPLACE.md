@@ -1,356 +1,323 @@
-# Publishing to Claude Code Plugin Marketplace
+# Claude Code Skills Guide
 
-This guide explains how to submit the Mr. Wiggum skill to the Claude Code Plugin Marketplace.
+This guide explains how to use and distribute the Mr. Wiggum skill with Claude Code.
 
-## Prerequisites
+## What Are Claude Code Skills?
 
-- GitHub account
-- Claude Code CLI installed
-- Repository with `.claude-plugin/` structure
+Skills in Claude Code are self-contained directories with a `SKILL.md` file containing:
+1. **Frontmatter** (YAML) - metadata like name, description, user-invocable flag
+2. **Documentation** (Markdown) - instructions for Claude on how to use the skill
 
-## Plugin Structure
+**No plugin manifest, no marketplace submission, no `.claude-plugin/` directory needed.**
 
-Mr. Wiggum has the required structure for Claude Code:
+## Mr. Wiggum Skill Structure
 
 ```
-mr-wiggum/
-├── .claude-plugin/
-│   ├── plugin.json          # Plugin metadata for Claude Code
-│   └── marketplace.json     # Marketplace listing
-├── skills/
-│   └── wiggum/
-│       └── SKILL.md         # Skill documentation with frontmatter
-└── README.md
+skills/wiggum/
+└── SKILL.md          # Skill with frontmatter + documentation
 ```
 
-## Installation for Claude Code
+That's it! No `plugin.json` or `marketplace.json` required.
 
-### Method 1: Install from GitHub (Available Now)
+## Installation
+
+### Method 1: Reference in Project (Recommended)
 
 ```bash
-# Install the skill into Claude Code
-claude skill add https://github.com/shepherdscientific/mr-wiggum
-
-# Or install from local directory
-cd /path/to/mr-wiggum
-claude skill add .
-
-# List installed skills
-claude skill list
-
-# Use in any project
+# In your project
 cd your-project
-claude "Load wiggum skill and convert my PRD.md"
+mkdir -p .claude/skills
+
+# Symlink the skill
+ln -s /path/to/mr-wiggum/skills/wiggum .claude/skills/wiggum
+
+# Or copy it
+cp -r /path/to/mr-wiggum/skills/wiggum .claude/skills/
 ```
 
-### Method 2: Install via Config
-
-Edit `~/.config/claude-code/config.json`:
-
-```json
-{
-  "skills": [
-    {
-      "name": "wiggum",
-      "source": "https://github.com/shepherdscientific/mr-wiggum"
-    }
-  ]
-}
-```
-
-### Method 3: Claude Code Marketplace (Future)
-
-Once marketplace launches:
+### Method 2: Add to Claude Code Configuration
 
 ```bash
-# Search for skill
-claude skill search wiggum
-
-# Install from marketplace
-claude skill install wiggum
-
-# Or browse marketplace
-claude skill browse
+# Add skill path to Claude Code
+claude add-skill --path /path/to/mr-wiggum/skills/wiggum
 ```
 
-## Using the Skill in Claude Code
-
-### In Command Line
+### Method 3: Clone Repo into Skills Directory
 
 ```bash
-# Convert PRD in current directory
-claude "Load wiggum skill and convert PRD.md to prd.json"
+# Clone entire repo into your project's skills folder
+cd your-project/.claude/skills
+git clone https://github.com/shepherdscientific/mr-wiggum.git
+# Claude Code will find skills/wiggum/SKILL.md automatically
+```
 
-# With file path
-claude "Load wiggum skill and convert specs/feature.md to prd.json"
+## Using the Skill
 
-# Interactive mode
-claude
-> Load wiggum skill
-> Convert my PRD to JSON
+### In Claude Code CLI
+
+```bash
+# Convert a PRD
+claude "Use the wiggum skill to convert PRD.md to prd.json"
+
+# With specific file
+claude "Use wiggum skill on specs/feature.md"
+
+# Interactive
+claude chat
+> Use wiggum skill to convert my PRD
 ```
 
 ### In Project with Wiggum Loop
 
 ```bash
-# Your workflow
-cd ~/agora-dao
-vi specs/new-feature.md  # Write PRD
-
-# Use skill to convert
-claude "Load wiggum skill and convert specs/new-feature.md to prd.json"
-
-# Run wiggum loop
-./wiggum.sh --tool claude 50
+# Complete workflow
+vi specs/new-feature.md              # Write PRD
+claude "wiggum skill: convert PRD"   # Convert to prd.json
+vi prd.json                           # Review/edit
+./wiggum.sh --tool claude 50          # Run wiggum loop
 ```
 
-## Plugin Files Explained
+## How Skills Work
 
-### `.claude-plugin/plugin.json`
+1. **Discovery**: Claude Code finds skills in:
+   - Project `.claude/skills/` directory
+   - Global skills configured with `claude add-skill`
 
-Defines the plugin for Claude Code CLI:
+2. **Loading**: When invoked, Claude reads the SKILL.md file
 
-```json
-{
-  "name": "wiggum-skills",
-  "version": "1.0.0",
-  "description": "Fresh context Ralph Wiggum skills",
-  "author": {
-    "name": "shepherdscientific"
-  },
-  "skills": "./skills/",
-  "keywords": ["wiggum", "ralph", "prd", "automation"]
-}
-```
+3. **Execution**: Claude follows the instructions in SKILL.md
 
-### `.claude-plugin/marketplace.json`
+4. **Context**: Skills only affect the current conversation - they don't persist state
 
-Marketplace listing for discoverability:
+## Skill Frontmatter
 
-```json
-{
-  "name": "wiggum-marketplace",
-  "owner": {
-    "name": "shepherdscientific"
-  },
-  "plugins": [
-    {
-      "name": "wiggum-skills",
-      "category": "productivity",
-      "skills": "./skills/"
-    }
-  ]
-}
-```
+The wiggum skill's frontmatter:
 
-### `skills/wiggum/SKILL.md`
-
-Skill with frontmatter that Claude Code reads:
-
-```markdown
+```yaml
 ---
 name: wiggum
-description: "Convert PRDs to prd.json format..."
+description: "Convert PRDs to prd.json format for Mr. Wiggum fresh context autonomous agent system"
 user-invocable: true
 ---
-
-# Mr. Wiggum PRD Converter
-
-[Skill documentation...]
 ```
 
-## Testing Before Publication
+**Fields:**
+- `name`: Unique identifier for the skill
+- `description`: What the skill does (shown to Claude)
+- `user-invocable`: If true, users can explicitly request the skill
 
-### Local Testing with Claude Code
+## Distributing Skills
+
+### Via GitHub
+
+Users can clone your repo into their skills folder:
 
 ```bash
-# 1. Install locally
-cd /path/to/mr-wiggum
-claude skill add .
+cd .claude/skills
+git clone https://github.com/shepherdscientific/mr-wiggum.git
+```
 
-# 2. Verify installation
-claude skill list | grep wiggum
+Claude Code automatically discovers `skills/wiggum/SKILL.md`.
 
-# 3. Test the skill
+### Via Direct Share
+
+Share the skill directory:
+
+```bash
+# Zip the skill
+cd mr-wiggum/skills
+zip -r wiggum-skill.zip wiggum/
+
+# Users extract to their skills folder
+unzip wiggum-skill.zip -d ~/.claude/skills/
+```
+
+### Via Documentation
+
+Include installation instructions in your README:
+
+```markdown
+## Installation
+
+```bash
+cd your-project/.claude/skills
+git clone https://github.com/you/your-skill.git
+```
+
+Or copy the skill directory directly.
+```
+
+## No Marketplace (Yet)
+
+**Important:** There is no central Claude Code skills marketplace currently. Distribution is manual:
+- GitHub repos
+- Direct file sharing
+- Documentation with installation instructions
+
+If Anthropic adds a marketplace in the future, skills will likely remain simple directories with SKILL.md files.
+
+## Testing Your Skill
+
+### Local Testing
+
+```bash
+# 1. Add skill to a test project
 cd ~/test-project
-echo "# Test PRD" > PRD.md
-claude "Load wiggum skill and convert PRD.md"
+mkdir -p .claude/skills
+ln -s /path/to/mr-wiggum/skills/wiggum .claude/skills/wiggum
 
-# 4. Check output
+# 2. Test with Claude Code
+echo "# Test PRD" > test.md
+claude "Use wiggum skill to convert test.md"
+
+# 3. Verify output
 cat prd.json | jq .
 ```
 
 ### Validation Checklist
 
-- [ ] `plugin.json` has valid JSON syntax
-- [ ] `marketplace.json` has valid JSON syntax  
-- [ ] `SKILL.md` has proper frontmatter
-- [ ] Skill loads in Claude Code without errors
-- [ ] Conversion produces valid prd.json
-- [ ] Works with `./wiggum.sh` loop
+- [ ] SKILL.md has valid YAML frontmatter
+- [ ] Frontmatter includes name, description, user-invocable
+- [ ] Skill documentation is clear and actionable
+- [ ] Claude Code can find and load the skill
+- [ ] Skill produces expected output
+- [ ] Works in realistic project scenarios
 
-## Claude Code vs Claude Desktop
+## Skill Best Practices
 
-**This plugin is for Claude Code (CLI), not Claude Desktop.**
+### Clear Invocation Triggers
 
-| Aspect | Claude Code (CLI) | Claude Desktop (GUI) |
-|--------|-------------------|----------------------|
-| **Installation** | `claude skill add` | Copy to skills folder |
-| **Usage** | Command line | Desktop app |
-| **Config** | `~/.config/claude-code/` | `~/.config/claude-desktop/` |
-| **Our plugin** | ✅ This one | ❌ Different structure |
+Document how users invoke the skill:
 
-## Marketplace Submission
-
-### Current Status
-
-**Available now:**
-- ✅ GitHub installation
-- ✅ Manual skill add
-- ✅ Local testing
-
-**Future:**
-- ⏳ Official Claude Code Marketplace
-- ⏳ Browse/search/install via CLI
-- ⏳ Automatic updates
-
-### When Marketplace Launches
-
-```bash
-# Submit (future command)
-cd /path/to/mr-wiggum
-claude skill publish
-
-# Or via web form
-# Navigate to marketplace portal
-# Submit GitHub repo URL
+```markdown
+**Invocation examples:**
+- "Use wiggum skill to convert my PRD"
+- "wiggum: convert PRD.md"
+- "Load wiggum skill"
 ```
 
-### Requirements for Marketplace
+### Focused Scope
 
-- [ ] Valid `.claude-plugin/` structure
-- [ ] Working skill with frontmatter
-- [ ] Clear documentation
-- [ ] MIT or permissive license
-- [ ] Example usage
-- [ ] Tests passing
+Skills should do ONE thing well:
+- ✅ Convert PRD to JSON
+- ✅ Generate test cases
+- ✅ Create API docs
+- ❌ "Do everything" mega-skill
 
-## Version Management
+### Minimal Dependencies
 
-### Update Version
+Skills work best when self-contained:
+- No external tools required
+- No API keys needed (unless core to function)
+- Works with just Claude + files
 
-1. **Update both JSON files:**
-   ```bash
-   # .claude-plugin/plugin.json
-   # .claude-plugin/marketplace.json
-   "version": "1.0.1"
-   ```
+### Clear Output Format
 
-2. **Tag release:**
-   ```bash
-   git tag v1.0.1
-   git push origin v1.0.1
-   ```
+Specify exactly what the skill produces:
 
-3. **Users update:**
-   ```bash
-   claude skill update wiggum
-   ```
-
-## Integration with Wiggum Loop
-
-### Complete Workflow
-
-```bash
-# 1. Write PRD (markdown)
-vi specs/auth-feature.md
-
-# 2. Convert with skill
-claude "Load wiggum skill and convert specs/auth-feature.md to prd.json"
-
-# 3. Review/edit prd.json
-vi prd.json
-
-# 4. Run autonomous loop
-./wiggum.sh --tool claude 50
-
-# 5. Monitor progress
-git log --oneline -10
+```markdown
+**Output:** Creates `prd.json` in current directory with format:
+```json
+{
+  "projectName": "...",
+  "userStories": [...]
+}
 ```
-
-### Why This Matters
-
-- **PRD.md → prd.json** conversion automated
-- **Fresh context** optimization built-in
-- **Story sizing** for 30K token budget
-- **Seamless** with wiggum.sh loop
+```
 
 ## Troubleshooting
+
+### Skill Not Found
+
+```bash
+# Check skills directory exists
+ls -la .claude/skills/
+
+# Check skill has SKILL.md
+ls -la .claude/skills/wiggum/
+
+# Check frontmatter
+head -10 .claude/skills/wiggum/SKILL.md
+```
 
 ### Skill Not Loading
 
 ```bash
-# Check installation
-claude skill list
+# Try explicit invocation
+claude "Use the skill named 'wiggum' to convert PRD.md"
 
-# Reinstall
-claude skill remove wiggum
-claude skill add https://github.com/shepherdscientific/mr-wiggum
-
-# Check config
-cat ~/.config/claude-code/config.json | jq .skills
+# Check for YAML syntax errors
+head -10 .claude/skills/wiggum/SKILL.md | grep -A 5 "^---$"
 ```
 
-### Conversion Errors
+### Wrong Output Format
 
-```bash
-# Test with simple PRD
-cat > test.md << 'EOF'
-# Test Feature
-## US-001: Simple test
-- [ ] Test criterion
-EOF
+- Verify SKILL.md documentation is clear
+- Add more examples to SKILL.md
+- Specify output format explicitly
 
-claude "Load wiggum skill and convert test.md"
+## Comparison: Old vs New System
 
-# Check for errors
-echo $?
+| Aspect | Old Plugin System | Current Skills System |
+|--------|-------------------|----------------------|
+| **Structure** | `.claude-plugin/` directory | Simple SKILL.md file |
+| **Metadata** | `plugin.json`, `marketplace.json` | YAML frontmatter |
+| **Installation** | `claude skill add` (complex) | Copy/link directory |
+| **Discovery** | Registry/manifest | File system scan |
+| **Distribution** | Marketplace (planned) | Manual (GitHub, zip) |
+| **Complexity** | High | Low |
+
+**Mr. Wiggum has migrated to the simpler current system.**
+
+## Complete Example: Wiggum Skill
+
+```markdown
+---
+name: wiggum
+description: "Convert PRDs to prd.json format for Mr. Wiggum"
+user-invocable: true
+---
+
+# Mr. Wiggum PRD Converter
+
+Converts PRDs to prd.json format.
+
+## Usage
+
+"Use wiggum skill to convert PRD.md"
+
+## Output Format
+
+Creates `prd.json`:
+```json
+{
+  "projectName": "...",
+  "branchName": "ralph/feature",
+  "userStories": [...]
+}
 ```
 
-### JSON Validation
-
-```bash
-# After conversion
-jq . prd.json
-
-# If invalid, check syntax
-jq --color-output . prd.json | less
+[Full skill documentation...]
 ```
 
 ## Resources
 
-- **Claude Code CLI Docs:** https://docs.anthropic.com/claude-code
-- **Skill System:** Check Claude Code documentation
-- **Ralph Example:** https://github.com/snarktank/ralph/.claude-plugin
-- **Our Repo:** https://github.com/shepherdscientific/mr-wiggum
+- **[Claude Code Skills Docs](https://code.claude.com/docs/en/skills)** - Official documentation
+- **[Wiggum Skill](../skills/wiggum/SKILL.md)** - Full skill documentation
+- **[GitHub Repo](https://github.com/shepherdscientific/mr-wiggum)** - Source code
 
 ## Contributing
 
 To improve the skill:
 
 1. Fork the repo
-2. Make changes to `skills/wiggum/SKILL.md`
-3. Test with Claude Code
+2. Edit `skills/wiggum/SKILL.md`
+3. Test locally
 4. Submit PR
+
+No complex build process, no manifests, just edit the markdown file.
 
 ## Support
 
 - **Issues:** https://github.com/shepherdscientific/mr-wiggum/issues
 - **Discussions:** https://github.com/shepherdscientific/mr-wiggum/discussions
-
-## Next Steps
-
-1. **Install:** `claude skill add https://github.com/shepherdscientific/mr-wiggum`
-2. **Test:** Create a sample PRD.md and convert it
-3. **Use:** Integrate with your wiggum.sh workflow
-4. **Feedback:** Open issues for improvements
