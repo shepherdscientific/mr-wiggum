@@ -2,7 +2,7 @@
 
 > Fresh context Ralph Wiggum architecture - autonomous coding with zero context accumulation
 
-[![Claude Plugin](https://img.shields.io/badge/Claude-Plugin-blue)](https://github.com/shepherdscientific/mr-wiggum/tree/main/.claude-plugin)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blue)](https://github.com/shepherdscientific/mr-wiggum/tree/main/.claude-plugin)
 
 ## The Problem
 
@@ -41,51 +41,40 @@ vim prd.json
 ./wiggum.sh
 ```
 
-## Claude Plugin
+## Claude Code Plugin
 
 Install the Wiggum skill for automated PRD conversion:
 
-### Claude Desktop
+### Installation
 
 ```bash
 # Install from GitHub
-mkdir -p ~/.config/claude-desktop/skills
-cd ~/.config/claude-desktop/skills
-git clone https://github.com/shepherdscientific/mr-wiggum.git
-ln -s mr-wiggum/skills/wiggum wiggum
+claude skill add https://github.com/shepherdscientific/mr-wiggum
 
-# Restart Claude Desktop
+# Verify installation
+claude skill list | grep wiggum
 ```
 
-### Using the Skill
+### Usage
 
+```bash
+# Convert PRD to prd.json
+cd your-project
+claude "Load wiggum skill and convert PRD.md to prd.json"
+
+# Then run wiggum loop
+./wiggum.sh --tool claude 50
 ```
-Load the wiggum skill and convert my PRD.md to prd.json
-```
 
-Claude will:
-1. Parse your markdown PRD
-2. Optimize for fresh context architecture
-3. Generate minimal prd.json
-4. Validate JSON structure
+### What the Skill Does
 
-### Marketplace Submission
+1. **Parses your PRD.md** - Markdown format
+2. **Optimizes for fresh context** - Stories sized for ~30K tokens
+3. **Generates minimal JSON** - No unnecessary fields
+4. **Validates structure** - Ensures valid prd.json
+5. **Orders dependencies** - Schema → Backend → UI
 
-To submit to Claude Plugin Marketplace:
-
-1. **Fork this repo**
-2. **Configure your fork:**
-   ```json
-   // .claude-plugin/marketplace.json
-   {
-     "owner": {
-       "name": "your-github-username"
-     }
-   }
-   ```
-3. **Submit PR to:**
-   - [Claude Plugin Marketplace](https://github.com/anthropics/claude-plugin-marketplace) (when available)
-   - Or use `claude plugin publish` CLI
+See [docs/MARKETPLACE.md](docs/MARKETPLACE.md) for publishing details.
 
 ## Files
 
@@ -131,7 +120,16 @@ Mr. Wiggum uses **structured JSON** instead of markdown for reliable parsing.
 }
 ```
 
-See [PRD Translation Guide](docs/PRD-TRANSLATION.md) for manual conversion or use the [Wiggum Claude skill](#claude-plugin).
+### Conversion Methods
+
+**Option 1: Claude Code Skill (Automated)**
+```bash
+claude skill add https://github.com/shepherdscientific/mr-wiggum
+claude "Load wiggum skill and convert PRD.md"
+```
+
+**Option 2: Manual**
+See [PRD Translation Guide](docs/PRD-TRANSLATION.md)
 
 ## Architecture
 
@@ -169,6 +167,16 @@ Iteration 1          Iteration 2          Iteration 3
 ./wiggum.sh 100
 ```
 
+### With Claude Code Skill
+
+```bash
+# Full workflow
+vi specs/feature.md         # Write PRD
+claude "wiggum convert PRD" # Convert to JSON
+vi prd.json                 # Review
+./wiggum.sh                 # Run loop
+```
+
 ### Monitor Progress
 
 ```bash
@@ -189,11 +197,6 @@ During setup, choose CodeRabbit for automated pre-commit reviews:
 ```bash
 ./setup-wiggum.sh
 # Choose: 1) CodeRabbit
-
-# Pre-commit hook will:
-# - Run CodeRabbit on staged files
-# - Show suggestions
-# - Allow manual override if needed
 ```
 
 ## Key Differences from Ralph
@@ -207,7 +210,7 @@ During setup, choose CodeRabbit for automated pre-commit reviews:
 | **AGENTS.md** | Optional | Core (auto-compact) |
 | **Session** | May persist | Always fresh |
 | **Performance** | Degrades | Consistent |
-| **Claude Plugin** | Available | ✅ Available |
+| **Claude Code Skill** | Available | ✅ Available |
 
 ## Best Practices
 
@@ -251,12 +254,6 @@ db.query(`SELECT * FROM users WHERE id = ${userId}`)
 ```
 ```
 
-**Features:**
-- ✅ Reusable pattern
-- ✅ Shows good vs bad
-- ✅ Explains why
-- ✅ Actionable
-
 ## Troubleshooting
 
 ### Context Still Growing
@@ -266,19 +263,12 @@ db.query(`SELECT * FROM users WHERE id = ${userId}`)
 - prd.json complexity (break into smaller stories)
 - Not reading unnecessary files in prompts
 
-**Fix:**
-- Run: `wc -l AGENTS.md`
-- Manual compact if needed
-- Simplify user story descriptions
-
 ### Agent Forgetting Patterns
 
 **This is expected.**
-
 - Not everything needs remembering
 - Git history is the source of truth
 - Only add patterns that help future work
-- Don't try to remember story-specific details
 
 ### Tasks Not Completing
 
@@ -294,32 +284,23 @@ db.query(`SELECT * FROM users WHERE id = ${userId}`)
 ```bash
 cd your-project
 curl -O https://raw.githubusercontent.com/shepherdscientific/mr-wiggum/main/wiggum.sh
-# ... other files
 chmod +x wiggum.sh
+./setup-wiggum.sh
 ```
 
 ### Option 2: Global Installation
 
 ```bash
-# Install to ~/bin
 mkdir -p ~/bin
 cd ~/bin
 git clone https://github.com/shepherdscientific/mr-wiggum.git
 ln -s ~/bin/mr-wiggum/wiggum.sh ~/bin/wiggum
-
-# Use in any project
-cd your-project
-wiggum
 ```
 
-### Option 3: Claude Plugin
+### Option 3: Claude Code Skill
 
 ```bash
-# Install skill globally
-mkdir -p ~/.config/claude-desktop/skills
-cd ~/.config/claude-desktop/skills
-git clone https://github.com/shepherdscientific/mr-wiggum.git
-ln -s mr-wiggum/skills/wiggum wiggum
+claude skill add https://github.com/shepherdscientific/mr-wiggum
 ```
 
 ## Credits
@@ -335,15 +316,14 @@ MIT - see [LICENSE](LICENSE)
 ## Resources
 
 - **[PRD Translation Guide](docs/PRD-TRANSLATION.md)** - Convert markdown to JSON
-- **[Wiggum Skill](skills/wiggum/SKILL.md)** - Claude plugin documentation
-- **[Plugin Files](.claude-plugin/)** - Marketplace submission files
-- **Setup Script** - Interactive configuration wizard
+- **[Wiggum Skill](skills/wiggum/SKILL.md)** - Claude Code skill documentation
+- **[Plugin Files](.claude-plugin/)** - Claude Code plugin structure
+- **[Marketplace Guide](docs/MARKETPLACE.md)** - Publishing to Claude Code marketplace
 
 ## Contributing
 
 PRs welcome! Especially for:
-- Additional code review integrations (CodeRabbit alternatives)
+- Additional code review integrations
 - Improved parsing in wiggum skill
 - Better AGENTS.md templates
 - Documentation improvements
-- Claude marketplace improvements
