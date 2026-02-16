@@ -34,27 +34,61 @@ read -p "Feature name for this branch (e.g., user-auth, api-v2): " FEATURE_NAME
 read -p "Number of initial user stories to create: " NUM_STORIES
 
 echo ""
-echo "🔍 Code Review Integration"
+echo "🔍 Code Review Integration (Open Source)"
 echo "---"
 echo "Optional: Configure automated code review"
 echo ""
 echo "Available options:"
-echo "  1) CodeRabbit (AI code reviewer)"
-echo "  2) None (skip for now)"
-read -p "Choose option [1-2]: " REVIEW_CHOICE
+echo "  1) Qodo Merge (PR-Agent) - Open source, self-hosted, supports local LLMs ⭐"
+echo "  2) SonarQube CE - Open source static analysis"
+echo "  3) None (skip for now)"
+read -p "Choose option [1-3]: " REVIEW_CHOICE
 
 SETUP_HOOKS=false
+REVIEW_TOOL=""
+
 if [ "$REVIEW_CHOICE" == "1" ]; then
-  SETUP_HOOKS=true
+  REVIEW_TOOL="qodo"
   echo ""
-  echo "ℹ️  CodeRabbit requires:"
-  echo "   - Install: gh extension install coderabbitai/gh-coderabbit"
-  echo "   - Setup: gh coderabbit setup"
-  read -p "Have you installed CodeRabbit? [y/N]: " HAS_CODERABBIT
+  echo "📦 Qodo Merge (PR-Agent) Setup"
+  echo "---"
+  echo "Installation options:"
+  echo "  A) Docker (recommended): docker run -it qodo/pr-agent"
+  echo "  B) pip: pip install pr-agent"
+  echo "  C) CLI local: npm install -g pr-agent-cli"
+  echo ""
+  echo "Pre-commit hook will use CLI mode"
+  read -p "Install Qodo Merge? [y/N]: " INSTALL_QODO
   
-  if [[ ! "$HAS_CODERABBIT" =~ ^[Yy]$ ]]; then
-    echo "⚠️  Install CodeRabbit first, then re-run setup"
-    SETUP_HOOKS=false
+  if [[ "$INSTALL_QODO" =~ ^[Yy]$ ]]; then
+    echo "Installing pr-agent..."
+    if command -v pip &> /dev/null; then
+      pip install pr-agent --break-system-packages 2>/dev/null || pip install pr-agent
+      echo "✅ Installed via pip"
+    else
+      echo "⚠️  pip not found. Install manually:"
+      echo "   pip install pr-agent"
+      echo "   OR"
+      echo "   docker pull qodo/pr-agent"
+    fi
+  fi
+  
+  SETUP_HOOKS=true
+  
+elif [ "$REVIEW_CHOICE" == "2" ]; then
+  REVIEW_TOOL="sonarqube"
+  echo ""
+  echo "📦 SonarQube CE Setup"
+  echo "---"
+  echo "SonarQube requires:"
+  echo "  - Docker: docker run -d --name sonarqube -p 9000:9000 sonarqube:community"
+  echo "  - OR download from: https://www.sonarqube.org/downloads/"
+  echo ""
+  echo "Pre-commit hook will run sonar-scanner"
+  read -p "Setup SonarQube hook? [y/N]: " SETUP_SONAR
+  
+  if [[ "$SETUP_SONAR" =~ ^[Yy]$ ]]; then
+    SETUP_HOOKS=true
   fi
 fi
 
@@ -167,11 +201,12 @@ echo "   📝 Edit prd.json to define your actual user stories"
 if [ "$SETUP_HOOKS" = true ]; then
   mkdir -p .git/hooks
   
-  cat > .git/hooks/pre-commit << 'HOOK_EOF'
+  if [ "$REVIEW_TOOL" == "qodo" ]; then
+    cat > .git/hooks/pre-commit << 'HOOK_EOF'
 #!/bin/bash
-# Mr. Wiggum pre-commit hook - CodeRabbit review
+# Mr. Wiggum pre-commit hook - Qodo Merge (PR-Agent)
 
-echo "🔍 Running CodeRabbit review..."
+echo "🔍 Running Qodo Merge review..."
 
 # Get staged files
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
@@ -181,22 +216,30 @@ if [ -z "$STAGED_FILES" ]; then
   exit 0
 fi
 
-# Run CodeRabbit
-if command -v gh &> /dev/null && gh extension list | grep -q coderabbit; then
-  # Create temporary diff
-  DIFF_FILE=$(mktemp)
-  git diff --cached > "$DIFF_FILE"
+# Create temporary commit for review
+git stash -q --keep-index
+
+# Run pr-agent review
+if command -v pr-agent &> /dev/null; then
+  echo ""
+  echo "Files to review:"
+  echo "$STAGED_FILES" | head -5
+  echo ""
   
-  # Run review
-  gh coderabbit review < "$DIFF_FILE"
+  # Run review on staged changes
+  pr-agent review \
+    --pr.diff="$(git diff --cached)" \
+    --pr.mode=cli \
+    2>&1 | tee /tmp/pr-agent-review.log
+  
   RESULT=$?
   
-  rm "$DIFF_FILE"
+  git stash pop -q
   
   if [ $RESULT -ne 0 ]; then
     echo ""
-    echo "⚠️  CodeRabbit found issues"
-    echo "   Review suggestions above"
+    echo "⚠️  Qodo Merge found issues"
+    echo "   See /tmp/pr-agent-review.log for details"
     echo ""
     read -p "Commit anyway? [y/N]: " FORCE_COMMIT
     
@@ -204,21 +247,101 @@ if command -v gh &> /dev/null && gh extension list | grep -q coderabbit; then
       echo "Commit cancelled"
       exit 1
     fi
+  else
+    echo "✅ Code review passed"
   fi
 else
-  echo "⚠️  CodeRabbit not installed, skipping review"
+  echo "⚠️  pr-agent not installed, skipping review"
+  echo "   Install: pip install pr-agent"
+  git stash pop -q
 fi
 
 exit 0
 HOOK_EOF
   
+  elif [ "$REVIEW_TOOL" == "sonarqube" ]; then
+    cat > .git/hooks/pre-commit << 'HOOK_EOF'
+#!/bin/bash
+# Mr. Wiggum pre-commit hook - SonarQube
+
+echo "🔍 Running SonarQube analysis..."
+
+# Get staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED_FILES" ]; then
+  echo "No files to review"
+  exit 0
+fi
+
+# Run sonar-scanner if available
+if command -v sonar-scanner &> /dev/null; then
+  echo ""
+  echo "Analyzing staged files..."
+  
+  # Create temp sonar-project.properties
+  cat > /tmp/sonar-project.properties << SONAR_EOF
+sonar.projectKey=wiggum-precommit
+sonar.sources=$STAGED_FILES
+sonar.host.url=http://localhost:9000
+SONAR_EOF
+  
+  sonar-scanner -Dproject.settings=/tmp/sonar-project.properties
+  RESULT=$?
+  
+  rm /tmp/sonar-project.properties
+  
+  if [ $RESULT -ne 0 ]; then
+    echo ""
+    echo "⚠️  SonarQube found issues"
+    echo "   Review at http://localhost:9000"
+    echo ""
+    read -p "Commit anyway? [y/N]: " FORCE_COMMIT
+    
+    if [[ ! "$FORCE_COMMIT" =~ ^[Yy]$ ]]; then
+      echo "Commit cancelled"
+      exit 1
+    fi
+  else
+    echo "✅ SonarQube analysis passed"
+  fi
+else
+  echo "⚠️  sonar-scanner not installed, skipping review"
+  echo "   Install: https://docs.sonarqube.org/latest/analysis/scan/sonarscanner/"
+fi
+
+exit 0
+HOOK_EOF
+  fi
+  
   chmod +x .git/hooks/pre-commit
-  echo "✅ Created pre-commit hook with CodeRabbit integration"
+  echo "✅ Created pre-commit hook with $REVIEW_TOOL integration"
 fi
 
 echo ""
 echo "🎉 Setup complete!"
 echo ""
+
+if [ "$REVIEW_TOOL" == "qodo" ]; then
+  echo "📚 Qodo Merge Resources:"
+  echo "   - Docs: https://qodo-merge-docs.qodo.ai/"
+  echo "   - GitHub: https://github.com/qodo-ai/pr-agent"
+  echo "   - Local LLM support: Use Ollama with --model flag"
+  echo ""
+  echo "Configure for local LLM:"
+  echo "   export PR_AGENT__MODEL=ollama/qwen3-coder"
+  echo "   export OLLAMA__API_BASE=http://localhost:11434"
+  echo ""
+fi
+
+if [ "$REVIEW_TOOL" == "sonarqube" ]; then
+  echo "📚 SonarQube Resources:"
+  echo "   - Docs: https://docs.sonarqube.org/"
+  echo "   - Docker: docker run -d --name sonarqube -p 9000:9000 sonarqube:community"
+  echo "   - Web UI: http://localhost:9000"
+  echo ""
+fi
+
 echo "Next steps:"
 echo "  1. Edit prd.json and define your user stories"
 echo "  2. Review AGENTS.md and customize for your project"
