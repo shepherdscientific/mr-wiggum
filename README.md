@@ -2,6 +2,8 @@
 
 > Fresh context Ralph Wiggum architecture - autonomous coding with zero context accumulation
 
+[![Claude Plugin](https://img.shields.io/badge/Claude-Plugin-blue)](https://github.com/shepherdscientific/mr-wiggum/tree/main/.claude-plugin)
+
 ## The Problem
 
 Standard Ralph loops accumulate context, leading to:
@@ -38,6 +40,52 @@ vim prd.json
 # 4. Start the loop
 ./wiggum.sh
 ```
+
+## Claude Plugin
+
+Install the Wiggum skill for automated PRD conversion:
+
+### Claude Desktop
+
+```bash
+# Install from GitHub
+mkdir -p ~/.config/claude-desktop/skills
+cd ~/.config/claude-desktop/skills
+git clone https://github.com/shepherdscientific/mr-wiggum.git
+ln -s mr-wiggum/skills/wiggum wiggum
+
+# Restart Claude Desktop
+```
+
+### Using the Skill
+
+```
+Load the wiggum skill and convert my PRD.md to prd.json
+```
+
+Claude will:
+1. Parse your markdown PRD
+2. Optimize for fresh context architecture
+3. Generate minimal prd.json
+4. Validate JSON structure
+
+### Marketplace Submission
+
+To submit to Claude Plugin Marketplace:
+
+1. **Fork this repo**
+2. **Configure your fork:**
+   ```json
+   // .claude-plugin/marketplace.json
+   {
+     "owner": {
+       "name": "your-github-username"
+     }
+   }
+   ```
+3. **Submit PR to:**
+   - [Claude Plugin Marketplace](https://github.com/anthropics/claude-plugin-marketplace) (when available)
+   - Or use `claude plugin publish` CLI
 
 ## Files
 
@@ -83,20 +131,7 @@ Mr. Wiggum uses **structured JSON** instead of markdown for reliable parsing.
 }
 ```
 
-### Automated Conversion
-
-Use the **wiggum skill** to convert PRD.md → prd.json:
-
-```bash
-# Install skill
-mkdir -p ~/.config/claude-desktop/skills
-cp -r skills/wiggum ~/.config/claude-desktop/skills/
-
-# In Claude.ai or Claude Desktop
-"Load the wiggum skill and convert my PRD.md to prd.json"
-```
-
-See [PRD Translation Guide](docs/PRD-TRANSLATION.md) for details.
+See [PRD Translation Guide](docs/PRD-TRANSLATION.md) for manual conversion or use the [Wiggum Claude skill](#claude-plugin).
 
 ## Architecture
 
@@ -172,6 +207,7 @@ During setup, choose CodeRabbit for automated pre-commit reviews:
 | **AGENTS.md** | Optional | Core (auto-compact) |
 | **Session** | May persist | Always fresh |
 | **Performance** | Degrades | Consistent |
+| **Claude Plugin** | Available | ✅ Available |
 
 ## Best Practices
 
@@ -276,6 +312,16 @@ cd your-project
 wiggum
 ```
 
+### Option 3: Claude Plugin
+
+```bash
+# Install skill globally
+mkdir -p ~/.config/claude-desktop/skills
+cd ~/.config/claude-desktop/skills
+git clone https://github.com/shepherdscientific/mr-wiggum.git
+ln -s mr-wiggum/skills/wiggum wiggum
+```
+
 ## Credits
 
 - Based on [Geoffrey Huntley's Ralph Wiggum pattern](https://ghuntley.com/ralph/)
@@ -289,7 +335,8 @@ MIT - see [LICENSE](LICENSE)
 ## Resources
 
 - **[PRD Translation Guide](docs/PRD-TRANSLATION.md)** - Convert markdown to JSON
-- **[Wiggum Skill](skills/wiggum/SKILL.md)** - Claude plugin for conversion
+- **[Wiggum Skill](skills/wiggum/SKILL.md)** - Claude plugin documentation
+- **[Plugin Files](.claude-plugin/)** - Marketplace submission files
 - **Setup Script** - Interactive configuration wizard
 
 ## Contributing
@@ -299,3 +346,4 @@ PRs welcome! Especially for:
 - Improved parsing in wiggum skill
 - Better AGENTS.md templates
 - Documentation improvements
+- Claude marketplace improvements
