@@ -1,59 +1,38 @@
-# Wiggum Skill - PRD Conversion
+---
+name: wiggum
+description: "Convert PRDs to prd.json format for the Mr. Wiggum fresh context autonomous agent system. Use when you have an existing PRD and need to convert it to Wiggum's JSON format. Triggers on: convert this prd, wiggum json, turn this into wiggum format, create prd.json."
+user-invocable: true
+---
 
-This skill helps you convert markdown PRDs to structured JSON for Mr. Wiggum.
+# Mr. Wiggum PRD Converter
 
-## What This Skill Does
+Converts existing PRDs to the prd.json format that Mr. Wiggum uses for fresh context autonomous execution.
 
-1. Reads your PRD.md (markdown format)
-2. Extracts project name, branch, and user stories
-3. Generates valid prd.json
-4. Validates the JSON structure
+**Key difference from Ralph:** Mr. Wiggum uses fresh context every iteration (~20-40K tokens) vs accumulated context (120K+).
 
-## How to Use
+---
 
-### In Claude.ai or Claude Desktop
+## The Job
 
-```
-Load the wiggum skill and convert my PRD.md to prd.json
-```
+Take a PRD (markdown file or text) and convert it to `prd.json` with fresh context architecture in mind.
 
-### What Happens
+---
 
-Claude will:
-1. Ask for your PRD.md content (or read from file)
-2. Parse project metadata
-3. Extract all user stories
-4. Generate structured JSON
-5. Validate syntax
-6. Show you the result
-
-### Example Input
-
-```markdown
-# Project: User Authentication
-
-Branch: `ralph/user-auth`
-
-### AUTH-001: Login Endpoint
-- [ ] POST /api/auth/login accepts email/password
-- [ ] Returns JWT on success
-- [ ] Tests pass
-```
-
-### Example Output
+## Output Format
 
 ```json
 {
-  "projectName": "User Authentication",
-  "branchName": "ralph/user-auth",
+  "projectName": "[Project Name]",
+  "branchName": "ralph/[feature-name-kebab-case]",
   "userStories": [
     {
-      "id": "AUTH-001",
-      "title": "Login Endpoint",
+      "id": "STORY-001",
+      "title": "[Story title]",
       "acceptanceCriteria": [
-        "POST /api/auth/login accepts email/password",
-        "Returns JWT on success",
-        "Tests pass"
+        "Criterion 1",
+        "Criterion 2",
+        "Tests pass",
+        "Type check passes"
       ],
       "passes": false
     }
@@ -61,224 +40,207 @@ Branch: `ralph/user-auth`
 }
 ```
 
-## Claude Prompt for Conversion
+**Simplified vs Ralph:** No `description`, `priority`, or `notes` fields - keeping JSON minimal reduces context.
 
-When a user says "convert my PRD to prd.json" or similar:
+---
 
-1. **Ask for the PRD:**
+## Story Size: The Critical Rule
+
+**Each story must be completable in ONE iteration with fresh context.**
+
+Mr. Wiggum spawns a fresh LLM instance per iteration with ZERO memory. Each iteration starts at 0 tokens, reads only:
+- prd.json (~5K tokens)
+- AGENTS.md (~10K tokens) 
+- git log (~5K tokens)
+
+**Total budget: ~30K tokens** for reading state + working on task.
+
+### Right-sized stories:
+- Add a database column and migration
+- Add one UI component
+- Update one API endpoint
+- Add one test suite
+
+### Too big (split these):
+- "Build the dashboard" → Split into: schema, API, components
+- "Add authentication" → Split into: schema, middleware, login UI, session
+- "Refactor API" → Split into one story per endpoint
+
+**Rule of thumb:** If you cannot implement it in 30K tokens of context, it is too big.
+
+---
+
+## Story Ordering: Dependencies First
+
+Stories execute by PRIORITY (agent picks most important incomplete), not in order.
+
+**Correct dependency order:**
+1. Schema/database changes (migrations)
+2. Backend logic / API endpoints
+3. UI components using the backend
+4. Integration/dashboard views
+
+**Wrong order:**
+1. UI component (depends on schema that doesn't exist yet)
+2. Schema change
+
+Agent will pick highest value task, so ensure dependencies are satisfied first.
+
+---
+
+## Acceptance Criteria: Must Be Verifiable
+
+Each criterion must be something the agent can CHECK with code or tests.
+
+### Good criteria (verifiable):
+- "POST /api/login returns JWT token"
+- "Filter dropdown has options: All, Active, Completed"
+- "Password field type='password'"
+- "Tests pass"
+- "Type check passes"
+
+### Bad criteria (vague):
+- "Works correctly"
+- "Good UX"
+- "Handles edge cases"
+
+### Always include:
 ```
-I'll help you convert your PRD.md to prd.json. Please either:
-- Paste your PRD.md content here
-- Or share the file path and I'll read it
+"Tests pass"
+"Type check passes"
 ```
 
-2. **Parse the markdown:**
-   - Extract project name from first `# Project:` heading
-   - Extract branch from `Branch:` line
-   - Find all user stories (markdown headings with IDs)
-   - Extract acceptance criteria (checkbox lists)
+**For UI stories, also include:**
+```
+"Manually verify in browser"
+```
 
-3. **Generate JSON structure:**
+---
+
+## Fresh Context Architecture: Keep JSON Minimal
+
+Mr. Wiggum reads prd.json EVERY iteration. Keep it small:
+
+### ❌ Don't include:
+- Long descriptions (agent can infer from title + criteria)
+- Priority numbers (agent decides based on importance)
+- Notes (use AGENTS.md for patterns, git for history)
+- Progress logs (use git commits)
+
+### ✅ Do include:
+- Clear story ID and title
+- Specific acceptance criteria
+- `passes` status (false/true)
+
+**Example of minimal story:**
 ```json
 {
-  "projectName": "...",
-  "branchName": "...",
-  "userStories": [
-    {
-      "id": "...",
-      "title": "...",
-      "acceptanceCriteria": [...],
-      "passes": false
-    }
-  ]
+  "id": "AUTH-001",
+  "title": "JWT authentication endpoint",
+  "acceptanceCriteria": [
+    "POST /api/auth/login accepts email/password",
+    "Returns JWT on valid credentials",
+    "Returns 401 on invalid credentials",
+    "Tests pass"
+  ],
+  "passes": false
 }
 ```
 
-4. **Validate:**
-   - Check JSON syntax
-   - Ensure all required fields present
-   - Verify unique story IDs
+---
 
-5. **Present result:**
-   - Show the generated JSON
-   - Offer to save to file if using Claude Code
-   - Provide next steps (run setup-wiggum.sh)
+## Conversion Rules
 
-## Installation
+1. **Each user story becomes one JSON entry**
+2. **IDs**: Use semantic prefixes (AUTH-001, API-001, DB-001)
+3. **All stories**: `passes: false` initially
+4. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
+5. **Keep minimal**: No description, priority, or notes fields
 
-### Claude Desktop
+---
 
-```bash
-mkdir -p ~/.config/claude-desktop/skills/wiggum
-cp SKILL.md ~/.config/claude-desktop/skills/wiggum/
-```
+## Splitting Large PRDs
 
-### Amp
+If a PRD has big features, split them into fresh-context-sized chunks:
 
-```bash
-mkdir -p ~/.config/amp/skills/wiggum
-cp SKILL.md ~/.config/amp/skills/wiggum/
-```
+**Original:**
+> "Add user notification system"
 
-## Parsing Rules
+**Split into:**
+1. DB-001: Add notifications table and migration
+2. API-001: Create POST /api/notifications endpoint
+3. API-002: Create GET /api/notifications endpoint
+4. UI-001: Add notification bell icon to header
+5. UI-002: Create notification dropdown component
+6. UI-003: Add mark-as-read functionality
 
-### Project Name
+Each can be completed in ~30K tokens of context.
+
+---
+
+## Example Conversion
+
+**Input PRD:**
 ```markdown
-# Project: User Authentication System
-# User Authentication System
-```
-Both formats work. Extract text after `# Project:` or just `#`.
+# Task Status Feature
 
-### Branch Name
-```markdown
-Branch: `ralph/user-auth`
-Branch: ralph/user-auth
-```
-Extract from backticks or plain text.
+Add ability to mark tasks with different statuses.
 
-### User Stories
-```markdown
-### AUTH-001: Login Endpoint
-### US-001 - Login Endpoint
-```
-Extract ID before `:` or `-`, title after.
-
-### Acceptance Criteria
-```markdown
-- [ ] Criterion one
-- [ ] Criterion two
-* [ ] Criterion three
-```
-Extract all checkbox items (checked or unchecked).
-
-## Advanced Features
-
-### Story Priority
-
-If PRD includes priority:
-```markdown
-**Priority:** High
-```
-
-Add to JSON:
-```json
-{
-  "id": "...",
-  "priority": "High",
-  ...
-}
-```
-
-### Story Dependencies
-
-If PRD includes dependencies:
-```markdown
-**Depends on:** US-001, US-002
-```
-
-Add to JSON:
-```json
-{
-  "id": "...",
-  "dependencies": ["US-001", "US-002"],
-  ...
-}
-```
-
-### Story Status
-
-If PRD shows completion:
-```markdown
-**Status:** ✅ Complete
-**Status:** 🔴 Not Started
-```
-
-Set `passes`:
-```json
-"passes": true   // if Complete
-"passes": false  // if Not Started/In Progress
-```
-
-## Error Handling
-
-### No Stories Found
-```
-⚠️  No user stories found in PRD.
-
-Expected format:
-### STORY-ID: Title
-- [ ] Acceptance criterion 1
-```
-
-### Invalid JSON
-```
-❌ Generated invalid JSON. Fixing...
-
-Common issues:
-- Extra commas
-- Missing quotes
-- Unescaped characters
-```
-
-### Duplicate IDs
-```
-⚠️  Duplicate story IDs found: AUTH-001
-
-Please ensure all story IDs are unique.
-```
-
-## Examples
-
-### Full Conversion
-
-**Input PRD.md:**
-```markdown
-# E-Commerce Platform
-
-Branch: `ralph/checkout`
-
-### CART-001: Add to Cart
-**Priority:** High
-
-- [ ] POST /api/cart adds item
-- [ ] Validates product exists
-- [ ] Returns updated cart
-- [ ] Tests pass
-
-### CART-002: Remove from Cart
-**Priority:** Medium
-
-- [ ] DELETE /api/cart/:id removes item
-- [ ] Returns 404 if not in cart
-- [ ] Tests pass
+## Requirements
+- Toggle between pending/in-progress/done
+- Filter list by status
+- Show status badge on each task
+- Persist status in database
 ```
 
 **Output prd.json:**
 ```json
 {
-  "projectName": "E-Commerce Platform",
-  "branchName": "ralph/checkout",
+  "projectName": "TaskApp - Status Feature",
+  "branchName": "ralph/task-status",
   "userStories": [
     {
-      "id": "CART-001",
-      "title": "Add to Cart",
-      "priority": "High",
+      "id": "DB-001",
+      "title": "Add status field to tasks table",
       "acceptanceCriteria": [
-        "POST /api/cart adds item",
-        "Validates product exists",
-        "Returns updated cart",
-        "Tests pass"
+        "Add status column: 'pending' | 'in_progress' | 'done' (default 'pending')",
+        "Generate and run migration successfully",
+        "Type check passes"
       ],
       "passes": false
     },
     {
-      "id": "CART-002",
-      "title": "Remove from Cart",
-      "priority": "Medium",
+      "id": "UI-001",
+      "title": "Display status badge on task cards",
       "acceptanceCriteria": [
-        "DELETE /api/cart/:id removes item",
-        "Returns 404 if not in cart",
-        "Tests pass"
+        "Each task card shows colored badge (gray/blue/green)",
+        "Badge reflects current status",
+        "Type check passes",
+        "Manually verify in browser"
+      ],
+      "passes": false
+    },
+    {
+      "id": "UI-002",
+      "title": "Add status toggle to task rows",
+      "acceptanceCriteria": [
+        "Each row has status dropdown",
+        "Changing status saves immediately",
+        "UI updates without page refresh",
+        "Type check passes",
+        "Manually verify in browser"
+      ],
+      "passes": false
+    },
+    {
+      "id": "UI-003",
+      "title": "Add status filter dropdown",
+      "acceptanceCriteria": [
+        "Filter dropdown: All | Pending | In Progress | Done",
+        "Filter persists in URL params",
+        "Empty state when no matches",
+        "Type check passes",
+        "Manually verify in browser"
       ],
       "passes": false
     }
@@ -286,33 +248,71 @@ Branch: `ralph/checkout`
 }
 ```
 
-## Next Steps After Conversion
+---
 
-1. Save the JSON to `prd.json` in your project
-2. Run `./setup-wiggum.sh` to initialize AGENTS.md
-3. Customize AGENTS.md with your stack details
-4. Run `./wiggum.sh` to start the loop
+## Fresh Context Best Practices
 
-## Tips
+### Story Titles
+Make them specific enough that agent knows what to do without reading long descriptions:
 
-- Keep story IDs semantic (AUTH-001, API-001, DB-001)
-- Include "Tests pass" in all acceptance criteria
-- Break large features into small, completable stories
-- Use actionable, verifiable criteria
+- ❌ "Update UI"
+- ✅ "Add status filter dropdown to task list"
 
-## Troubleshooting
+### Acceptance Criteria
+List the bare minimum to verify completion:
 
-**"Claude can't find the wiggum skill"**
-- Ensure SKILL.md is in correct directory
-- Restart Claude Desktop/Amp
-- Try: "List available skills" to verify
+- ❌ "Feature works well and looks good"
+- ✅ "Filter dropdown filters tasks by status"
 
-**"Conversion result has errors"**
-- Check original PRD markdown syntax
-- Ensure story IDs are unique
-- Verify acceptance criteria use checkbox format
+### AGENTS.md Integration
+If a pattern emerges (like "always use parameterized queries"), the agent will add it to AGENTS.md. Don't include this in prd.json.
 
-**"Want to re-convert after changes"**
-- Edit your PRD.md
-- Run conversion again
-- Claude will regenerate fresh JSON
+---
+
+## Checklist Before Saving
+
+Before writing prd.json, verify:
+
+- [ ] Each story is completable in ~30K tokens of context
+- [ ] Stories ordered by dependency (schema → backend → UI)
+- [ ] Every story has "Tests pass" / "Type check passes"
+- [ ] UI stories have "Manually verify in browser"
+- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] JSON is minimal (no unnecessary fields)
+- [ ] Story titles are specific and clear
+- [ ] IDs use semantic prefixes (AUTH-, API-, DB-, UI-)
+
+---
+
+## Installing the Skill
+
+### Claude Desktop
+```bash
+mkdir -p ~/.config/claude-desktop/skills
+cd ~/.config/claude-desktop/skills
+git clone https://github.com/shepherdscientific/mr-wiggum.git
+ln -s mr-wiggum/skills/wiggum wiggum
+```
+
+### Using the Skill
+```
+Load the wiggum skill and convert my PRD.md to prd.json
+```
+
+Claude will parse your PRD, ask clarifying questions if needed, and generate a fresh-context-optimized prd.json.
+
+---
+
+## Why Fresh Context Matters
+
+**Standard Ralph:** Context accumulates → 120K tokens at iteration 4 → API errors
+
+**Mr. Wiggum:** Fresh context → 30K tokens per iteration → consistent performance
+
+This means:
+- Smaller user stories (fits in 30K budget)
+- Minimal JSON (less to read each time)
+- Pattern library in AGENTS.md (curated, <500 lines)
+- No progress.txt journal (git commits are the log)
+
+**Result:** Agent never hits "dumb zone" (60-70% context capacity where performance degrades).
