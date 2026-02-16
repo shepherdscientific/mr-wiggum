@@ -2,7 +2,7 @@
 
 > Fresh context Ralph Wiggum architecture - autonomous coding with zero context accumulation
 
-[![Claude Code Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blue)](https://github.com/shepherdscientific/mr-wiggum/tree/main/.claude-plugin)
+[![Claude Code Skill](https://img.shields.io/badge/Claude_Code-Skill-blue)](https://github.com/shepherdscientific/mr-wiggum/tree/main/skills/wiggum)
 
 ## The Problem
 
@@ -41,29 +41,34 @@ vim prd.json
 ./wiggum.sh
 ```
 
-## Claude Code Plugin
+## Claude Code Skill
 
-Install the Wiggum skill for automated PRD conversion:
+Add the Wiggum skill for automated PRD conversion:
 
 ### Installation
 
 ```bash
-# Install from GitHub
-claude skill add https://github.com/shepherdscientific/mr-wiggum
+# Option 1: Add skill to Claude Code configuration
+claude add-skill --path /path/to/mr-wiggum/skills/wiggum
 
-# Verify installation
-claude skill list | grep wiggum
+# Option 2: Reference in your project (recommended)
+cd your-project
+mkdir -p .claude/skills
+ln -s /path/to/mr-wiggum/skills/wiggum .claude/skills/wiggum
+
+# Option 3: Copy skill directory directly
+cp -r /path/to/mr-wiggum/skills/wiggum your-project/.claude/skills/
 ```
 
 ### Usage
 
 ```bash
-# Convert PRD to prd.json
-cd your-project
-claude "Load wiggum skill and convert PRD.md to prd.json"
+# In Claude Code
+claude "Use the wiggum skill to convert PRD.md to prd.json"
 
-# Then run wiggum loop
-./wiggum.sh --tool claude 50
+# Or in chat
+claude chat
+> Use wiggum skill on specs/feature.md
 ```
 
 ### What the Skill Does
@@ -74,7 +79,7 @@ claude "Load wiggum skill and convert PRD.md to prd.json"
 4. **Validates structure** - Ensures valid prd.json
 5. **Orders dependencies** - Schema → Backend → UI
 
-See [docs/MARKETPLACE.md](docs/MARKETPLACE.md) for publishing details.
+**Note:** Skills in Claude Code are directories containing a SKILL.md file with frontmatter. No installation manifest or marketplace submission needed - just reference the skill directory.
 
 ## Files
 
@@ -124,8 +129,8 @@ Mr. Wiggum uses **structured JSON** instead of markdown for reliable parsing.
 
 **Option 1: Claude Code Skill (Automated)**
 ```bash
-claude skill add https://github.com/shepherdscientific/mr-wiggum
-claude "Load wiggum skill and convert PRD.md"
+# Make sure skill is linked/referenced in your project
+claude "Use wiggum skill to convert PRD.md"
 ```
 
 **Option 2: Manual**
@@ -172,7 +177,7 @@ Iteration 1          Iteration 2          Iteration 3
 ```bash
 # Full workflow
 vi specs/feature.md         # Write PRD
-claude "wiggum convert PRD" # Convert to JSON
+claude "wiggum skill: convert PRD" # Convert to JSON
 vi prd.json                 # Review
 ./wiggum.sh                 # Run loop
 ```
@@ -210,7 +215,7 @@ During setup, choose CodeRabbit for automated pre-commit reviews:
 | **AGENTS.md** | Optional | Core (auto-compact) |
 | **Session** | May persist | Always fresh |
 | **Performance** | Degrades | Consistent |
-| **Claude Code Skill** | Available | ✅ Available |
+| **Claude Code Skill** | Plugin system (old) | Skill directory (current) |
 
 ## Best Practices
 
@@ -300,7 +305,10 @@ ln -s ~/bin/mr-wiggum/wiggum.sh ~/bin/wiggum
 ### Option 3: Claude Code Skill
 
 ```bash
-claude skill add https://github.com/shepherdscientific/mr-wiggum
+# Link skill to your project
+cd your-project
+mkdir -p .claude/skills
+ln -s ~/bin/mr-wiggum/skills/wiggum .claude/skills/wiggum
 ```
 
 ## Credits
@@ -317,8 +325,7 @@ MIT - see [LICENSE](LICENSE)
 
 - **[PRD Translation Guide](docs/PRD-TRANSLATION.md)** - Convert markdown to JSON
 - **[Wiggum Skill](skills/wiggum/SKILL.md)** - Claude Code skill documentation
-- **[Plugin Files](.claude-plugin/)** - Claude Code plugin structure
-- **[Marketplace Guide](docs/MARKETPLACE.md)** - Publishing to Claude Code marketplace
+- **[Claude Code Skills Docs](https://code.claude.com/docs/en/skills)** - Official skills documentation
 
 ## Contributing
 
