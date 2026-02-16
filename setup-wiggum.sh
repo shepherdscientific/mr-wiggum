@@ -1,50 +1,69 @@
 #!/bin/bash
-# Mr. Wiggum Setup Wizard
-# Interactive setup for fresh context autonomous coding
+# Mr. Wiggum Setup - Interactive configuration
+# Creates AGENTS.md, prd.json, and optional pre-commit hooks
 
 set -e
 
-echo "🎩 Mr. Wiggum Setup Wizard"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🤖 Mr. Wiggum Setup"
+echo "=================="
 echo ""
 
-# Check if we're in a git repo
-if ! git rev-parse --git-dir > /dev/null 2>&1; then
-  echo "❌ Not a git repository. Please run 'git init' first."
-  exit 1
+# Detect project info
+PROJECT_NAME=$(basename "$PWD")
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+
+echo "📁 Project: $PROJECT_NAME"
+echo "🌿 Current branch: $CURRENT_BRANCH"
+echo ""
+
+# Ask about tech stack
+echo "🔧 Tech Stack Configuration"
+echo "---"
+
+read -p "Primary language (e.g., JavaScript, Python, Go): " LANGUAGE
+read -p "Framework (e.g., Express, FastAPI, none): " FRAMEWORK
+read -p "Database (e.g., PostgreSQL, MongoDB, none): " DATABASE
+read -p "Test command (e.g., npm test, pytest): " TEST_CMD
+read -p "Type check command (e.g., npm run typecheck, mypy .): " TYPECHECK_CMD
+
+echo ""
+echo "📋 PRD Configuration"
+echo "---"
+
+read -p "Feature name for this branch (e.g., user-auth, api-v2): " FEATURE_NAME
+read -p "Number of initial user stories to create: " NUM_STORIES
+
+echo ""
+echo "🔍 Code Review Integration"
+echo "---"
+echo "Optional: Configure automated code review"
+echo ""
+echo "Available options:"
+echo "  1) CodeRabbit (AI code reviewer)"
+echo "  2) None (skip for now)"
+read -p "Choose option [1-2]: " REVIEW_CHOICE
+
+SETUP_HOOKS=false
+if [ "$REVIEW_CHOICE" == "1" ]; then
+  SETUP_HOOKS=true
+  echo ""
+  echo "ℹ️  CodeRabbit requires:"
+  echo "   - Install: gh extension install coderabbitai/gh-coderabbit"
+  echo "   - Setup: gh coderabbit setup"
+  read -p "Have you installed CodeRabbit? [y/N]: " HAS_CODERABBIT
+  
+  if [[ ! "$HAS_CODERABBIT" =~ ^[Yy]$ ]]; then
+    echo "⚠️  Install CodeRabbit first, then re-run setup"
+    SETUP_HOOKS=false
+  fi
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# === STEP 1: Tech Stack Questions ===
-echo "📋 Step 1: Tell me about your tech stack"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "✨ Creating files..."
 echo ""
 
-read -p "Primary language (e.g., JavaScript, Python, Go): " LANG
-read -p "Framework (e.g., Express, FastAPI, React): " FRAMEWORK
-read -p "Database (e.g., PostgreSQL, MongoDB, MySQL): " DATABASE
-read -p "Test framework (e.g., Jest, pytest, go test): " TEST_FRAMEWORK
-
-echo ""
-read -p "Test command (e.g., npm test, pytest): " TEST_CMD
-read -p "Type check command (or 'none' if no type checking): " TYPECHECK_CMD
-read -p "Dev server command (e.g., npm run dev): " DEV_CMD
-
-# === STEP 2: Project Structure ===
-echo ""
-echo "📁 Step 2: Project structure"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-read -p "Source directory (e.g., src, lib, app): " SRC_DIR
-read -p "Test directory (e.g., tests, test, __tests__): " TEST_DIR
-
-# === STEP 3: Create AGENTS.md ===
-echo ""
-echo "✍️  Creating AGENTS.md..."
-
-cat > "$SCRIPT_DIR/AGENTS.md" << EOF
+# Create AGENTS.md
+cat > AGENTS.md << EOF
 # Agent Pattern Library
 
 **Purpose:** Curated, reusable knowledge for autonomous agents.
@@ -59,57 +78,30 @@ cat > "$SCRIPT_DIR/AGENTS.md" << EOF
 ## Project Setup
 
 **Tech Stack:**
-- Language: $LANG
-- Framework: $FRAMEWORK
-- Database: $DATABASE
-- Tests: $TEST_FRAMEWORK
+- Language: $LANGUAGE
+- Framework: ${FRAMEWORK:-none}
+- Database: ${DATABASE:-none}
 
 **Commands:**
 \`\`\`bash
 $TEST_CMD           # Run tests
-EOF
-
-if [ "$TYPECHECK_CMD" != "none" ]; then
-  echo "$TYPECHECK_CMD  # Type checking" >> "$SCRIPT_DIR/AGENTS.md"
-fi
-
-cat >> "$SCRIPT_DIR/AGENTS.md" << EOF
-$DEV_CMD        # Development server
+$TYPECHECK_CMD      # Type checking
 \`\`\`
 
 **Test Requirements:**
 - Tests must pass before committing
-- All new features need test coverage
-EOF
-
-if [ "$TYPECHECK_CMD" != "none" ]; then
-  echo "- Type checks must pass" >> "$SCRIPT_DIR/AGENTS.md"
-fi
-
-cat >> "$SCRIPT_DIR/AGENTS.md" << EOF
+- ${DATABASE:+Mock database calls in unit tests}
 
 ---
 
 ## Codebase Conventions
 
 ### File Organization
-- \`$SRC_DIR/\` - Application code
-- \`$TEST_DIR/\` - Test files
+- \`src/\` - Application code
+- \`tests/\` - Test files
 
 ### Code Patterns
-(Agents will populate this as they discover patterns)
-
-### Database
-EOF
-
-if [[ "$DATABASE" == *"Postgres"* ]] || [[ "$DATABASE" == *"MySQL"* ]]; then
-  cat >> "$SCRIPT_DIR/AGENTS.md" << 'EOF'
-- Always use parameterized queries
-- Never concatenate user input into SQL
-EOF
-fi
-
-cat >> "$SCRIPT_DIR/AGENTS.md" << EOF
+(Agents will populate as they discover patterns)
 
 ---
 
@@ -122,165 +114,125 @@ cat >> "$SCRIPT_DIR/AGENTS.md" << EOF
 ## Implementation Notes
 
 **When adding new features:**
-1. Write tests first (TDD recommended)
+1. Write tests first (TDD)
 2. Implement feature
-3. Run full test suite
-4. Commit only when green
-
-**When modifying existing code:**
-1. Ensure tests still pass
-2. Update tests if behavior changed
-3. Document any pattern changes here
+3. Ensure all tests pass
+4. Update this file with any new patterns
 
 ---
 
 *Last updated: $(date)*
-*Auto-managed by Mr. Wiggum*
 EOF
 
-echo "✅ AGENTS.md created"
+echo "✅ Created AGENTS.md"
 
-# === STEP 4: PRD Handling ===
-echo ""
-echo "📝 Step 3: PRD Setup"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-if [ -f "$SCRIPT_DIR/prd.json" ]; then
-  echo "✅ prd.json already exists"
-else
-  echo "No prd.json found."
-  echo ""
-  echo "You can either:"
-  echo "  1. Create prd.json manually (see prd.json.example)"
-  echo "  2. Convert existing PRD.md using: claude 'Convert PRD.md to prd.json format'"
-  echo "  3. Use the wiggum skill to generate from description"
-  echo ""
-  read -p "Create example prd.json now? (y/n): " CREATE_PRD
-  
-  if [[ "$CREATE_PRD" == "y" ]]; then
-    cat > "$SCRIPT_DIR/prd.json" << 'EOF'
+# Create prd.json
+cat > prd.json << EOF
 {
-  "projectName": "Your Project",
-  "branchName": "wiggum/initial-feature",
+  "projectName": "$PROJECT_NAME - $FEATURE_NAME",
+  "branchName": "ralph/$FEATURE_NAME",
   "userStories": [
+EOF
+
+for i in $(seq 1 $NUM_STORIES); do
+  COMMA=""
+  if [ $i -lt $NUM_STORIES ]; then
+    COMMA=","
+  fi
+  
+  cat >> prd.json << EOF
     {
-      "id": "STORY-001",
-      "title": "Setup project structure",
+      "id": "STORY-$(printf "%03d" $i)",
+      "title": "TODO: Define user story $i",
       "acceptanceCriteria": [
-        "Project builds successfully",
-        "Tests run without errors",
-        "README documents setup"
+        "TODO: Define acceptance criteria",
+        "Tests pass",
+        "Type check passes"
       ],
       "passes": false
-    }
+    }$COMMA
+EOF
+done
+
+cat >> prd.json << EOF
+
   ]
 }
 EOF
-    echo "✅ Example prd.json created - customize it with your tasks"
-  fi
+
+echo "✅ Created prd.json with $NUM_STORIES placeholder stories"
+echo "   📝 Edit prd.json to define your actual user stories"
+
+# Setup pre-commit hooks if requested
+if [ "$SETUP_HOOKS" = true ]; then
+  mkdir -p .git/hooks
+  
+  cat > .git/hooks/pre-commit << 'HOOK_EOF'
+#!/bin/bash
+# Mr. Wiggum pre-commit hook - CodeRabbit review
+
+echo "🔍 Running CodeRabbit review..."
+
+# Get staged files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED_FILES" ]; then
+  echo "No files to review"
+  exit 0
 fi
 
-# === STEP 5: Pre-commit Hooks ===
-echo ""
-echo "🪝 Step 4: Code Review Automation (Optional)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Would you like to add pre-commit hooks for automated code review?"
-echo ""
-echo "Options:"
-echo "  1. CodeRabbit CLI (AI code review)"
-echo "  2. ESLint/Prettier (for JavaScript/TypeScript)"
-echo "  3. Ruff/Black (for Python)"
-echo "  4. None"
-echo ""
-read -p "Choose (1-4): " HOOK_CHOICE
-
-case $HOOK_CHOICE in
-  1)
-    if ! command -v coderabbit &> /dev/null; then
-      echo "⚠️  CodeRabbit CLI not found"
-      echo "Install: npm install -g @coderabbitai/cli"
-      echo "Then run: coderabbit auth"
-    else
-      mkdir -p .git/hooks
-      cat > .git/hooks/pre-commit << 'HOOK'
-#!/bin/bash
-# CodeRabbit pre-commit hook
-
-echo "🐰 Running CodeRabbit review..."
-coderabbit review --diff || {
-  echo "❌ CodeRabbit found issues"
-  exit 1
-}
-echo "✅ CodeRabbit approved"
-HOOK
-      chmod +x .git/hooks/pre-commit
-      echo "✅ CodeRabbit pre-commit hook installed"
+# Run CodeRabbit
+if command -v gh &> /dev/null && gh extension list | grep -q coderabbit; then
+  # Create temporary diff
+  DIFF_FILE=$(mktemp)
+  git diff --cached > "$DIFF_FILE"
+  
+  # Run review
+  gh coderabbit review < "$DIFF_FILE"
+  RESULT=$?
+  
+  rm "$DIFF_FILE"
+  
+  if [ $RESULT -ne 0 ]; then
+    echo ""
+    echo "⚠️  CodeRabbit found issues"
+    echo "   Review suggestions above"
+    echo ""
+    read -p "Commit anyway? [y/N]: " FORCE_COMMIT
+    
+    if [[ ! "$FORCE_COMMIT" =~ ^[Yy]$ ]]; then
+      echo "Commit cancelled"
+      exit 1
     fi
-    ;;
-  2)
-    mkdir -p .git/hooks
-    cat > .git/hooks/pre-commit << 'HOOK'
-#!/bin/bash
-# ESLint/Prettier pre-commit hook
-
-echo "🔍 Running linters..."
-npm run lint || {
-  echo "❌ Linting failed"
-  exit 1
-}
-echo "✅ Linting passed"
-HOOK
-    chmod +x .git/hooks/pre-commit
-    echo "✅ ESLint pre-commit hook installed"
-    echo "⚠️  Make sure you have 'npm run lint' configured in package.json"
-    ;;
-  3)
-    mkdir -p .git/hooks
-    cat > .git/hooks/pre-commit << 'HOOK'
-#!/bin/bash
-# Ruff/Black pre-commit hook
-
-echo "🔍 Running Python formatters..."
-ruff check . || {
-  echo "❌ Ruff check failed"
-  exit 1
-}
-black --check . || {
-  echo "❌ Black formatting check failed"
-  exit 1
-}
-echo "✅ Formatting checks passed"
-HOOK
-    chmod +x .git/hooks/pre-commit
-    echo "✅ Python pre-commit hook installed"
-    ;;
-  4)
-    echo "⏭️  Skipping pre-commit hooks"
-    ;;
-esac
-
-# === STEP 6: Final Summary ===
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ Setup Complete!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "Files created:"
-echo "  📄 AGENTS.md - Pattern library for your $LANG stack"
-if [ -f "$SCRIPT_DIR/prd.json" ]; then
-  echo "  📄 prd.json - Task list (customize it!)"
+  fi
+else
+  echo "⚠️  CodeRabbit not installed, skipping review"
 fi
+
+exit 0
+HOOK_EOF
+  
+  chmod +x .git/hooks/pre-commit
+  echo "✅ Created pre-commit hook with CodeRabbit integration"
+fi
+
+echo ""
+echo "🎉 Setup complete!"
 echo ""
 echo "Next steps:"
-echo "  1. Customize prd.json with your user stories"
-echo "  2. Review AGENTS.md and add project-specific patterns"
-echo "  3. Run: ./wiggum.sh --tool claude 50"
+echo "  1. Edit prd.json and define your user stories"
+echo "  2. Review AGENTS.md and customize for your project"
+echo "  3. Run: ./wiggum.sh"
 echo ""
-echo "Need help with PRD?"
-echo "  • See prd.json.example for format"
-echo "  • Use Claude: 'Convert my PRD.md to prd.json format'"
-echo "  • Load wiggum skill and ask for PRD generation"
+echo "Example user story:"
+echo '  {'
+echo '    "id": "AUTH-001",'
+echo '    "title": "Implement JWT authentication",'
+echo '    "acceptanceCriteria": ['
+echo '      "POST /api/auth/login returns JWT token",'
+echo '      "Invalid credentials return 401",'
+echo '      "Tests pass"'
+echo '    ],'
+echo '    "passes": false'
+echo '  }'
 echo ""
-echo "Happy autonomous coding! 🚀"
