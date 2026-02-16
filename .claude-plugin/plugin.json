@@ -1,0 +1,10 @@
+{
+  "name": "wiggum-skills",
+  "version": "1.0.0",
+  "description": "Fresh context Ralph Wiggum skills - Convert PRDs to prd.json with zero context accumulation architecture",
+  "author": {
+    "name": "shepherdscientific"
+  },
+  "skills": "./skills/",
+  "keywords": ["wiggum", "ralph", "prd", "automation", "agent", "fresh-context", "autonomous"]
+}
