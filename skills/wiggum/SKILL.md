@@ -1,7 +1,6 @@
 ---
 name: wiggum
-description: "Convert PRDs to prd.json format for the Mr. Wiggum fresh context autonomous agent system. Use when you have an existing PRD and need to convert it to Wiggum's JSON format. Triggers on: convert this prd, wiggum json, turn this into wiggum format, create prd.json."
-user-invocable: true
+description: Convert PRDs to prd.json format for the Mr. Wiggum fresh context autonomous agent system. Use when you have an existing PRD markdown file and need to convert it to Wiggum's JSON format for autonomous execution. Triggers on: convert PRD, wiggum json, turn into wiggum format, create prd.json.
 ---
 
 # Mr. Wiggum PRD Converter
@@ -281,25 +280,6 @@ Before writing prd.json, verify:
 - [ ] JSON is minimal (no unnecessary fields)
 - [ ] Story titles are specific and clear
 - [ ] IDs use semantic prefixes (AUTH-, API-, DB-, UI-)
-
----
-
-## Installing the Skill
-
-### Claude Desktop
-```bash
-mkdir -p ~/.config/claude-desktop/skills
-cd ~/.config/claude-desktop/skills
-git clone https://github.com/shepherdscientific/mr-wiggum.git
-ln -s mr-wiggum/skills/wiggum wiggum
-```
-
-### Using the Skill
-```
-Load the wiggum skill and convert my PRD.md to prd.json
-```
-
-Claude will parse your PRD, ask clarifying questions if needed, and generate a fresh-context-optimized prd.json.
 
 ---
 
