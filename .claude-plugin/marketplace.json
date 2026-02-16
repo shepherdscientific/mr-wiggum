@@ -1,0 +1,21 @@
+{
+  "name": "wiggum-marketplace",
+  "owner": {
+    "name": "shepherdscientific"
+  },
+  "metadata": {
+    "description": "Fresh context Ralph Wiggum skills - Convert PRDs to prd.json with zero context accumulation for consistent autonomous performance",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "wiggum-skills",
+      "source": "./",
+      "description": "PRD conversion skills for Mr. Wiggum autonomous agent - fresh context architecture eliminates token bloat",
+      "version": "1.0.0",
+      "keywords": ["wiggum", "ralph", "prd", "automation", "fresh-context", "autonomous"],
+      "category": "productivity",
+      "skills": "./skills/"
+    }
+  ]
+}
