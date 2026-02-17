@@ -1,0 +1,201 @@
+{
+  "projectName": "DAO Domain - MVP Launch",
+  "branchName": "ralph/mvp-launch",
+  "userStories": [
+    {
+      "id": "BLOCKER-001",
+      "title": "Fix domains route runtime error (CRITICAL)",
+      "acceptanceCriteria": [
+        "Find and fix: value[max > 10000 ? value[1] : value[1]].toLocaleString()",
+        "Replace with: (value?.[1] ?? 0).toLocaleString('en-US')",
+        "Test /domains page loads without crash",
+        "Price range filter works correctly",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "BLOCKER-002",
+      "title": "Fix all security vulnerabilities (CRITICAL)",
+      "acceptanceCriteria": [
+        "npm audit fix (automatic fixes)",
+        "npm install next@16.1.6 (fix DoS vulnerabilities)",
+        "npm install ajv@latest --save-dev (fix ReDoS)",
+        "npm audit shows 0 high/critical vulnerabilities",
+        "Application builds successfully",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-001",
+      "title": "Simplify landing page for MVP (remove Web3 complexity)",
+      "acceptanceCriteria": [
+        "Hide Connect Wallet button in navigation (comment out, don't delete)",
+        "Remove token benefits section from landing page",
+        "Update hero CTA: Domain + Hosting + AI Website = $19.99/year",
+        "Update pricing display: Strike through $89 regular price",
+        "Keep domain search as primary CTA",
+        "Landing page loads and looks clean",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-002",
+      "title": "Create competitive pricing structure",
+      "acceptanceCriteria": [
+        "Update constants: BUNDLE_PRICE = 19.99 (first year)",
+        "Update constants: BUNDLE_RENEWAL = 29.99 (renewal)",
+        "Update constants: DOMAIN_ONLY = 12.99",
+        "Update constants: HOSTING_MONTHLY = 4.99",
+        "Update constants: AI_WEBSITE = 9.99",
+        "Display: Bundle saves $69 vs buying separately",
+        "All price displays updated across site",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-003",
+      "title": "Implement Namecheap sandbox integration",
+      "acceptanceCriteria": [
+        "Sign up for Namecheap reseller sandbox account",
+        "Add NAMECHEAP_API_USER, NAMECHEAP_API_KEY, NAMECHEAP_USERNAME to .env",
+        "Create /api/domains/check-availability route using Namecheap API",
+        "Create /api/domains/register route (sandbox mode)",
+        "Test with .test TLD in sandbox",
+        "Handle errors: domain unavailable, API failures, invalid TLD",
+        "Return proper status codes and error messages",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-004",
+      "title": "Implement Stripe test mode checkout",
+      "acceptanceCriteria": [
+        "Create Stripe test account (if needed)",
+        "Add STRIPE_SECRET_KEY (test mode) to .env",
+        "Add STRIPE_PUBLISHABLE_KEY (test mode) to .env.local",
+        "Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to .env.local",
+        "Create /api/checkout/create-session route",
+        "Create product: Domain Bundle at $19.99",
+        "Create /api/webhooks/stripe route with signature verification",
+        "Test checkout flow with Stripe test cards",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-005",
+      "title": "Create minimal AI website generator",
+      "acceptanceCriteria": [
+        "Add OPENAI_API_KEY to .env",
+        "Create /api/ai/generate-website route",
+        "Accept: businessName, businessType, description (3 fields max)",
+        "Use GPT-4 to generate single HTML file with Tailwind CDN",
+        "Template: hero + 3-section showcase + contact form",
+        "Return generated HTML (don't deploy yet, just generate)",
+        "Test with 3 business types: restaurant, consulting, e-commerce",
+        "Limit: 500 tokens output to control costs ($0.15 per generation)",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-006",
+      "title": "Wire up payment webhook to trigger domain registration",
+      "acceptanceCriteria": [
+        "In /api/webhooks/stripe: detect checkout.session.completed event",
+        "Extract domain name from session metadata",
+        "Call /api/domains/register with payment confirmation",
+        "On success: save order to database with status 'processing'",
+        "On failure: log error, mark order 'failed', send alert email",
+        "Return 200 OK to Stripe (acknowledge webhook)",
+        "Test with Stripe CLI webhook forwarding",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-007",
+      "title": "Setup SendGrid and basic confirmation email",
+      "acceptanceCriteria": [
+        "Sign up for SendGrid free tier (100 emails/day)",
+        "Add SENDGRID_API_KEY to .env",
+        "Verify sender email in SendGrid",
+        "Create /api/email/send route",
+        "Create template: purchase_confirmation.html",
+        "Email includes: domain name, order ID, next steps, support email",
+        "Send email after successful payment webhook",
+        "Test email delivery to real email address",
+        "Tests pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": "MVP-008",
+      "title": "Deploy MVP to Vercel staging",
+      "acceptanceCriteria": [
+        "Create Vercel project (if not exists)",
+        "Add all environment variables to Vercel dashboard",
+        "Deploy to staging: vercel --prod=false",
+        "Test full flow: search → price → checkout → webhook → email",
+        "Verify Stripe webhooks work with Vercel URL",
+        "Check: no console errors, all pages load",
+        "Staging URL functional"
+      ],
+      "passes": false
+    },
+    {
+      "id": "POST-MVP-001",
+      "title": "Add hosting provision (Vercel/Cloudflare Pages)",
+      "acceptanceCriteria": [
+        "Defer to post-MVP: Ship domain + email first",
+        "Add after first 10 paying customers",
+        "Use Vercel API or Cloudflare Pages API",
+        "Auto-create project per purchased domain",
+        "Deploy AI-generated website to hosting",
+        "Return live URL to customer"
+      ],
+      "passes": false
+    },
+    {
+      "id": "POST-MVP-002",
+      "title": "Re-enable Web3 wallet connection (post-launch)",
+      "acceptanceCriteria": [
+        "Defer to Month 2: after proving Web2 works",
+        "Uncomment RainbowKit/Wagmi providers",
+        "Add Connect Wallet back to nav",
+        "Design token utility (discounts + governance)",
+        "Launch token after 200+ customers"
+      ],
+      "passes": false
+    },
+    {
+      "id": "POST-MVP-003",
+      "title": "Add domain management dashboard",
+      "acceptanceCriteria": [
+        "Defer to Month 2",
+        "Show user's purchased domains",
+        "DNS management",
+        "Renewal reminders",
+        "Transfer domains"
+      ],
+      "passes": false
+    },
+    {
+      "id": "POST-MVP-004",
+      "title": "Build DAO governance contracts",
+      "acceptanceCriteria": [
+        "Defer to Month 4: after 200+ customers",
+        "Use OpenZeppelin Governor",
+        "Use Gnosis Safe for treasury",
+        "Governance over product features only",
+        "Not financial decisions (LLC retains control)"
+      ],
+      "passes": false
+    }
+  ]
+}
