@@ -1,0 +1,206 @@
+# DAO Domain - MVP Launch Progress
+
+## Mission: Ship by Breakfast
+
+**Goal:** Fix blockers, implement MVP features, deploy staging
+**Timeline:** Tonight/early morning
+**Pricing:** $19.99/year (competitive with Hostinger/Namecheap)
+
+---
+
+## Critical Blockers (Fix First)
+
+### BLOCKER-001: Domains route crashes ❌
+**Status:** NOT STARTED
+**Error:** `TypeError: undefined is not an object (evaluating 'value[max > 10000 ? value[1] : value[1]].toLocaleString')`
+**Location:** Search for this in app/api/domains/ or components with price range
+**Fix:** Replace with `(value?.[1] ?? 0).toLocaleString('en-US')`
+**Test:** npm run dev, visit /domains, use price range filter
+**Blocker:** Site is broken until fixed
+
+### BLOCKER-002: Security vulnerabilities (11 moderate, 1 high) ❌
+**Status:** NOT STARTED
+**Issues:** Next.js DoS, ajv ReDoS, eslint chain
+**Fix:**
+```bash
+npm audit fix
+npm install next@16.1.6
+npm install ajv@latest --save-dev
+npm audit  # Verify 0 high/critical
+```
+**Test:** npm run build
+**Blocker:** Can't deploy with high/critical vulns
+
+---
+
+## MVP Features (Implement After Blockers Fixed)
+
+### MVP-001: Simplify landing for MVP ❌
+**Status:** NOT STARTED
+**Why:** Remove Web3 complexity, focus on core value
+**Changes:**
+- Hide wallet connect (comment out)
+- Remove token benefits section
+- Update hero: "$19.99/year - Domain + Hosting + AI Website"
+- Show savings: "Regular $89, Now $19.99 (First Year)"
+**Test:** Landing page clean and compelling
+
+### MVP-002: Competitive pricing ❌
+**Status:** NOT STARTED
+**Pricing Strategy:**
+- Bundle: $19.99 first year, $29.99 renewal (vs $89 separate)
+- Domain only: $12.99
+- Hosting: $4.99/mo
+- AI website: $9.99
+**Competitors:**
+- Hostinger: $23.99/year (domain + hosting, no AI)
+- Namecheap: $18.88/year (domain + basic hosting)
+- GoDaddy: $59.99/year (domain + hosting + builder)
+**Our edge:** AI website generator at $19.99 total
+
+### MVP-003: Namecheap sandbox ❌
+**Status:** NOT STARTED
+**Action:**
+1. Sign up: https://www.namecheap.com/support/api/intro/
+2. Get sandbox credentials
+3. Implement check-availability API
+4. Implement register API (sandbox with .test TLD)
+5. Test: can check domain, can register in sandbox
+**Docs:** https://www.namecheap.com/support/api/methods/
+
+### MVP-004: Stripe test mode ❌
+**Status:** NOT STARTED
+**Action:**
+1. Get test keys: https://dashboard.stripe.com/test/apikeys
+2. Create product: "Domain Bundle" at $19.99
+3. Implement checkout session
+4. Implement webhook with signature verification
+5. Test with: 4242 4242 4242 4242
+**Docs:** https://stripe.com/docs/checkout/quickstart
+
+### MVP-005: AI website generator ❌
+**Status:** NOT STARTED
+**Scope:** Simple, cost-effective
+**Input:** Business name, type, description (3 fields)
+**Output:** Single HTML file with Tailwind CDN
+**Template:** Hero + 3 sections + contact form
+**Cost:** ~$0.01-0.15 per generation (GPT-4o-mini recommended)
+**Test:** Restaurant, Consulting, E-commerce
+
+### MVP-006: Payment → Domain registration ❌
+**Status:** NOT STARTED
+**Flow:**
+1. Stripe webhook receives checkout.session.completed
+2. Extract domain from metadata
+3. Call Namecheap register API
+4. Save order with status
+5. Return 200 to Stripe
+**Test:** Use Stripe CLI webhook forwarding
+
+### MVP-007: Email confirmation ❌
+**Status:** NOT STARTED
+**Action:**
+1. SendGrid free tier (100/day)
+2. Verify sender
+3. Template: "Your domain [X] is ready!"
+4. Include: domain, order ID, next steps
+5. Send after webhook success
+**Test:** Send to real email
+
+### MVP-008: Deploy staging ❌
+**Status:** NOT STARTED
+**Action:**
+1. Add env vars to Vercel
+2. Deploy: vercel --prod=false
+3. Test full flow
+4. Fix any issues
+5. Share staging URL for feedback
+
+---
+
+## Deferred to Post-MVP
+
+- Hosting auto-provision (ship domain first)
+- Web3 wallet (add after proving Web2)
+- Domain dashboard (Month 2)
+- DAO contracts (Month 4, after 200+ customers)
+
+---
+
+## Success Criteria
+
+**Tonight:**
+- [x] Blockers fixed
+- [x] Landing page simplified
+- [x] Pricing updated
+- [x] Namecheap integrated (sandbox)
+- [x] Stripe checkout works (test mode)
+- [x] AI generator working
+- [x] Email sends
+- [x] Deployed to staging
+
+**Tomorrow:**
+- Test with 5 friends
+- Fix critical bugs
+- Prepare for soft launch
+
+**This Week:**
+- Soft launch (50 people)
+- First paying customer
+- Iterate based on feedback
+
+---
+
+## Competitive Analysis (Updated)
+
+| Feature | Us | Hostinger | Namecheap | GoDaddy |
+|---------|-----|-----------|-----------|---------|
+| Domain | ✅ | ✅ | ✅ | ✅ |
+| Hosting | ✅ | ✅ | ✅ | ✅ |
+| AI Website | ✅ | ❌ | ❌ | Basic |
+| First Year | $19.99 | $23.99 | $18.88 | $59.99 |
+| Renewal | $29.99 | $71.88 | $48.88 | $95.88 |
+| Setup Time | 60 sec | 10 min | 15 min | 20 min |
+
+**Our advantage:** AI website in 60 seconds at best price
+
+---
+
+## Unit Economics (Real Numbers)
+
+**Per Customer:**
+- Revenue: $19.99 (first year), $29.99 (renewal)
+- COGS: $10 domain + $3 hosting + $0.15 AI = $13.15
+- Margin: $6.84 (34% first year), $16.84 (56% renewal)
+
+**Break-even:**
+- Fixed costs: $500 LLC + $20 Vercel = $520
+- Break-even: 76 customers first year
+- After year 1: $16.84 margin per customer
+
+**At 100 customers:**
+- Revenue: $1,999 (first year), $2,999 (renewal)
+- Margin: $684 (first year), $1,684 (renewal)
+- MRR: $140 (from renewals)
+
+**At 500 customers:**
+- Revenue: $9,995 (first year), $14,995 (renewal)
+- Margin: $3,420 (first year), $8,420 (renewal)
+- MRR: $700
+- Can afford: Lawyer for DAO ($5-10K)
+
+---
+
+## Notes
+
+- Keep it simple: Domain + Email confirmation first
+- Add hosting provision after first 10 customers
+- Token/DAO after 200+ customers
+- Focus: Get one paying customer tonight (staging)
+- Validate: Someone will actually pay $19.99
+
+---
+
+Last updated: 2026-02-17 21:50 UTC
+Ralph: Use prd-mvp-launch.json for task list
+Context: Keep under 30K tokens (read prd, AGENTS, git log -5 only)
