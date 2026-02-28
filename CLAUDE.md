@@ -19,9 +19,8 @@ Read the following to understand the current situation, keeping your total readi
 
 ```bash
 cat prd.json
-cat AGENTS.md
+cat scripts/ralph/AGENTS.md
 git log --oneline -15
-
 ```
 
 ### Step 2: Select ONE Task
@@ -38,19 +37,19 @@ Work on **exactly one story**. You must follow existing patterns found in `AGENT
 
 Before committing, you must pass:
 
-1. **Typechecks**: `mypy .` or equivalent  
-2. **Tests**: `pytest` or equivalent  
-3. **Aider Review** *(NEW)*: Run `./scripts/ralph/aider_review.sh`  
+1. **Typechecks**: `cd orchestrator && mypy . --ignore-missing-imports` or equivalent  
+2. **Tests**: `cd orchestrator && pytest tests/ -x` or equivalent  
+3. **Aider Review**: Run `./scripts/ralph/aider-review.sh`  
    - Apply *all* critical fixes Aider suggests  
    - If Aider finds no critical issues, proceed  
-   - If Aider suggests adding a new pattern to `AGENTS.md`, do so  
-   - If Aider reports a blocker *you cannot fix*, document it in `AGENTS.md` and exit without committing  
-4. **Manual Verification**: If UI changed, verify layout/logic  
+   - If `SKIP_AIDER_REVIEW=1` is set, skip this step entirely  
+   - If Aider reports a blocker you cannot fix, document it in `scripts/ralph/AGENTS.md` and exit without committing  
+4. **Manual Verification**: If behaviour changed, verify against acceptance criteria  
 
 ### Step 4: Update Documentation & Logs
 
 1. **Update `prd.json**`: Set `passes: true` for the completed story.
-2. **Curate `AGENTS.md**`: If you learned a **reusable** pattern (e.g., "Always use X for Y"), add it here. Delete obsolete info.
+2. **Curate `scripts/ralph/AGENTS.md`**: If you learned a **reusable** pattern (e.g., "Always use X for Y"), add it here. Delete obsolete info.
 3. **Audit `progress.txt**`: Append a brief summary of your work for the human supervisor:
 * **What**: Story ID and Title.
 * **Changes**: Files modified.
@@ -73,5 +72,4 @@ git commit -m "feat(STORY-ID): Brief description"
 
 * **No "Memory"**: Never refer to "previous sessions." If it isn't in the files or git, it didn't happen.
 * **One Task, One Commit**: Do not drift into secondary tasks. Finish the selected story, then exit.
-* **Don't Commit Broken Code**: If tests or Aider review fail and you cannot fix them, document the blocker in `AGENTS.md` and exit without committing.
-* **Aider is not the driver**: Aider only reviews — never selects tasks, updates `prd.json`, or commits.
+* **Don't Commit Broken Code**: If tests fail and you cannot fix them, document the blocker in `scripts/ralph/AGENTS.md` and exit without committing.
