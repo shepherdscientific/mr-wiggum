@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify aider is installed
-if ! command -v aider &> /dev/null; then
-  echo "⚠️ Aider not found, skipping review."
-  exit 0
-fi
-
-
 # Skip entirely if requested
 if [ "${SKIP_AIDER_REVIEW:-0}" = "1" ]; then
   echo "⏭️  SKIP_AIDER_REVIEW=1 — skipping aider review step"
+  exit 0
+fi
+
+# Verify aider is installed
+if ! command -v aider &> /dev/null; then
+  echo "⚠️ Aider not found, skipping review."
   exit 0
 fi
 
@@ -29,8 +28,6 @@ echo "🔍 Running Aider review via $LLM_API_BASE"
 
 aider \
   --model openai/qwen3-coder-next \
-  --openai-api-base "$LLM_API_BASE" \
-  --openai-api-key "$LLM_API_KEY" \
   --yes \
   --no-auto-commit \
   --message "Analyze the current uncommitted changes. 
