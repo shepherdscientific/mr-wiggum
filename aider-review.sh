@@ -21,7 +21,7 @@ fi
 echo "🔍 Running Aider review via $LLM_API_BASE"
 
 aider \
-  --model qwen3-coder-next \
+  --model openai/qwen3-coder-next \
   --openai-api-base "$LLM_API_BASE" \
   --openai-api-key "$LLM_API_KEY" \
   --yes \
