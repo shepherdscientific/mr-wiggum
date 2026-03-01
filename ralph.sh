@@ -1,5 +1,5 @@
 #!/bin/bash
-# Mr. Wiggum - Autonomous AI agent loop
+# Ralph Wiggum - Autonomous AI agent loop
 # Usage: ./ralph.sh [--tool amp|claude|opencode|gemini|codex] [max_iterations]
 
 set -e
@@ -54,7 +54,7 @@ if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
     [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
     echo "   Archived to: $ARCHIVE_FOLDER"
 
-    echo "# Progress Log" > "$PROGRESS_FILE"
+    echo "# Ralph Progress Log" > "$PROGRESS_FILE"
     echo "Started: $(date)" >> "$PROGRESS_FILE"
     echo "---" >> "$PROGRESS_FILE"
   fi
@@ -68,41 +68,45 @@ fi
 
 # Initialize progress file
 if [ ! -f "$PROGRESS_FILE" ]; then
-  echo "# Progress Log" > "$PROGRESS_FILE"
+  echo "# Ralph Progress Log" > "$PROGRESS_FILE"
   echo "Started: $(date)" >> "$PROGRESS_FILE"
   echo "---" >> "$PROGRESS_FILE"
 fi
 
-echo "🚀 Starting Mr. Wiggum — Tool: $TOOL — Max iterations: $MAX_ITERATIONS"
+echo "\U0001F680 Starting Ralph \u2014 Tool: $TOOL \u2014 Max iterations: $MAX_ITERATIONS"
 
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
-  echo "  Iteration $i of $MAX_ITERATIONS ($TOOL)"
+  echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
 
+  # Capture output then print it — tee /dev/stderr is unreliable on macOS
+  # and causes the '>' in </promise> to be swallowed, breaking COMPLETE detection.
   case "$TOOL" in
     "amp")
-      OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1) || true
       ;;
     "claude")
-      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1) || true
       ;;
     "opencode")
-      # Run 'opencode /init' once in the repo before using this tool
-      OUTPUT=$(opencode run "$(cat "$SCRIPT_DIR/OPENCODE.md")" 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(opencode run "$(cat "$SCRIPT_DIR/OPENCODE.md")" 2>&1) || true
       ;;
     "gemini")
-      OUTPUT=$(gemini -p "$(cat "$SCRIPT_DIR/GEMINI.md")" 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(gemini -p "$(cat "$SCRIPT_DIR/GEMINI.md")" 2>&1) || true
       ;;
     "codex")
-      OUTPUT=$(aider --model gpt-4o --message-file "$SCRIPT_DIR/AIDER_CODEX.md" --yes --no-auto-commit 2>&1 | tee /dev/stderr) || true
+      OUTPUT=$(aider --model gpt-4o --message-file "$SCRIPT_DIR/AIDER_CODEX.md" --yes --no-auto-commit 2>&1) || true
       ;;
   esac
 
+  # Print output so it's visible in the terminal
+  echo "$OUTPUT"
+
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
-    echo "✅ Mr. Wiggum completed all tasks at iteration $i of $MAX_ITERATIONS"
+    echo "\u2705 Ralph completed all tasks at iteration $i of $MAX_ITERATIONS"
     exit 0
   fi
 
@@ -111,6 +115,6 @@ for i in $(seq 1 $MAX_ITERATIONS); do
 done
 
 echo ""
-echo "Reached max iterations ($MAX_ITERATIONS) without completing all tasks."
+echo "Ralph reached max iterations ($MAX_ITERATIONS) without completing all tasks."
 echo "Check $PROGRESS_FILE for status."
 exit 1
