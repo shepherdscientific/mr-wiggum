@@ -73,13 +73,28 @@ if [ ! -f "$PROGRESS_FILE" ]; then
   echo "---" >> "$PROGRESS_FILE"
 fi
 
-echo "\U0001F680 Starting Ralph \u2014 Tool: $TOOL \u2014 Max iterations: $MAX_ITERATIONS"
+echo "🚀 Starting Ralph — Tool: $TOOL — Max iterations: $MAX_ITERATIONS"
+
+# Helper: check prd.json for incomplete stories as a hard fallback
+prd_all_complete() {
+  if [ ! -f "$PRD_FILE" ]; then return 1; fi
+  local incomplete
+  incomplete=$(jq '[.userStories[] | select(.passes != true)] | length' "$PRD_FILE" 2>/dev/null) || return 1
+  [ "$incomplete" = "0" ]
+}
 
 for i in $(seq 1 $MAX_ITERATIONS); do
   echo ""
   echo "==============================================================="
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
+
+  # Early exit: all stories already marked complete before this iteration
+  if prd_all_complete; then
+    echo ""
+    echo "✅ All PRD stories already complete — skipping iteration $i"
+    exit 0
+  fi
 
   # Capture output then print it — tee /dev/stderr is unreliable on macOS
   # and causes the '>' in </promise> to be swallowed, breaking COMPLETE detection.
@@ -88,7 +103,10 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1) || true
       ;;
     "claude")
-      OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1) || true
+      # FIX: pass prompt as argument, NOT via stdin redirect.
+      # Newer Claude Code versions misparse `< file` as structured tool input,
+      # causing ZodErrors (expected string, received object) at num_turns=0.
+      OUTPUT=$(claude --dangerously-skip-permissions --print "$(cat "$SCRIPT_DIR/CLAUDE.md")" 2>&1) || true
       ;;
     "opencode")
       OUTPUT=$(opencode run "$(cat "$SCRIPT_DIR/OPENCODE.md")" 2>&1) || true
@@ -104,9 +122,19 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # Print output so it's visible in the terminal
   echo "$OUTPUT"
 
+  # Primary completion signal: model emits <promise>COMPLETE</promise>
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
-    echo "\u2705 Ralph completed all tasks at iteration $i of $MAX_ITERATIONS"
+    echo "✅ Ralph completed all tasks at iteration $i of $MAX_ITERATIONS"
+    exit 0
+  fi
+
+  # Fallback completion check: inspect prd.json directly.
+  # Handles cases where the model completes work but doesn't emit the signal
+  # (e.g. truncated output, JSON-wrapped response, or crash after writing).
+  if prd_all_complete; then
+    echo ""
+    echo "✅ All PRD stories complete (verified via prd.json) at iteration $i"
     exit 0
   fi
 
@@ -116,5 +144,6 @@ done
 
 echo ""
 echo "Ralph reached max iterations ($MAX_ITERATIONS) without completing all tasks."
-echo "Check $PROGRESS_FILE for status."
+echo "Check $PROGRESS_FILE for status. Remaining stories:"
+jq '[.userStories[] | select(.passes != true) | {id, title}]' "$PRD_FILE" 2>/dev/null || true
 exit 1
