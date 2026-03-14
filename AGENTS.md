@@ -20,8 +20,40 @@
 - Alembic async migrations require `greenlet` library - install with `pip install greenlet`
 - Alembic async migrations with asyncpg require `psycopg2-binary` - install with `pip install psycopg2-binary`
 
-## 4. Aider Review (Mandatory Post-Implementation Gate)
-- Run `./scripts/ralph/aider_review.sh` **after** implementation, **before** step 4.
+## 4. ⚠️ CRITICAL: Updating prd.json Safely
+
+**NEVER manually edit prd.json or use sed/awk!** This creates duplicate keys.
+
+**ALWAYS use jq to update prd.json:**
+
+```bash
+# Mark a story as complete (US-015)
+jq '(.userStories[] | select(.id == "US-015") | .passes) = true' prd.json > /tmp/prd.json && mv /tmp/prd.json prd.json
+
+# Mark a story as incomplete
+jq '(.userStories[] | select(.id == "US-015") | .passes) = false' prd.json > /tmp/prd.json && mv /tmp/prd.json prd.json
+
+# Update notes for a story
+jq '(.userStories[] | select(.id == "US-015") | .notes) = "Implementation complete"' prd.json > /tmp/prd.json && mv /tmp/prd.json prd.json
+```
+
+**Validation: Check for duplicate keys before committing:**
+
+```bash
+# Run validation script
+./validate-prd.sh
+
+# Or manual check (should return empty)
+python3 -c "import json; d=json.load(open('prd.json')); print('Duplicates found!' if any('passes' in str(s) and str(s).count('\"passes\"') > 1 for s in d['userStories']) else '')"
+```
+
+**If you find duplicate keys, run:**
+```bash
+./fix-prd-duplicates.sh
+```
+
+## 5. Aider Review (Mandatory Post-Implementation Gate)
+- Run `./scripts/ralph/aider_review.sh` **after** implementation, **before** updating prd.json.
 - Apply *all* critical fixes Aider suggests.
 - If Aider reports a reusable pattern (e.g., anti-pattern), add it here.
 - If Aider finds a blocker you cannot fix: document in this file and EXIT (no commit).
