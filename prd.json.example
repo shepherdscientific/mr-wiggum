@@ -2,6 +2,7 @@
   "project": "MyApp",
   "branchName": "ralph/task-priority",
   "description": "Task Priority System - Add priority levels to tasks",
+  "agents": ["engineering-backend-architect"],
   "userStories": [
     {
       "id": "US-001",
@@ -20,6 +21,7 @@
       "id": "US-002",
       "title": "Display priority indicator on task cards",
       "description": "As a user, I want to see task priority at a glance.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Each task card shows colored priority badge (red=high, yellow=medium, gray=low)",
         "Priority visible without hovering or clicking",
@@ -34,6 +36,7 @@
       "id": "US-003",
       "title": "Add priority selector to task edit",
       "description": "As a user, I want to change a task's priority when editing it.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Priority dropdown in task edit modal",
         "Shows current priority as selected",
@@ -49,6 +52,7 @@
       "id": "US-004",
       "title": "Filter tasks by priority",
       "description": "As a user, I want to filter the task list to see only high-priority items.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Filter dropdown with options: All | High | Medium | Low",
         "Filter persists in URL params",

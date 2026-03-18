@@ -23,11 +23,13 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
   "project": "[Project Name]",
   "branchName": "ralph/[feature-name-kebab-case]",
   "description": "[Feature description from PRD title/intro]",
+  "agents": ["engineering-backend-architect"],
   "userStories": [
     {
       "id": "US-001",
       "title": "[Story title]",
       "description": "As a [user], I want [feature] so that [benefit]",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Criterion 1",
         "Criterion 2",
@@ -43,11 +45,80 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
 
 ---
 
+## Agent Personas
+
+Ralph can inject an agent persona into the AI's context at the start of each iteration. This shapes how the model approaches each story — a backend architect will make different trade-offs than a frontend developer.
+
+### How it works
+
+Before each iteration, ralph resolves the agents for the next incomplete story and prepends their content to the instruction file. The CLAUDE.md / prompt.md stays unchanged; the persona is prepended, not mixed in.
+
+### Resolution order
+
+`story.agents` → `prd.agents` → no persona (current behaviour, no regression)
+
+Story-level agents override the PRD-level default. If neither is set, the iteration runs without a persona — identical to the previous behaviour.
+
+### Agent names
+
+Agent names must exactly match the filename of an agent in the `agency-agents/` directory (without the `.md` extension). The lookup searches recursively across all subdirectories.
+
+```
+agency-agents/
+  engineering/
+    engineering-backend-architect.md    ← name: "engineering-backend-architect"
+    engineering-frontend-developer.md   ← name: "engineering-frontend-developer"
+    engineering-software-architect.md   ← name: "engineering-software-architect"
+  design/
+    design-ux-researcher.md             ← name: "design-ux-researcher"
+  ...
+```
+
+### Multiple agents on one story
+
+You can list more than one agent. Their content is concatenated (in order) and then the instruction file follows — so the instruction file overrides any conflicting behavioural instructions in the agents.
+
+```json
+"agents": ["engineering-ai-engineer", "engineering-ai-data-remediation-engineer"]
+```
+
+### Setting up agency-agents
+
+The `agency-agents/` directory is included in this repo under `agency-agents/`. No extra setup required — ralph auto-detects it on startup.
+
+Alternatively, clone the full agency-agents repo as a sibling of your mr-wiggum directory:
+
+```
+your-project/
+  mr-wiggum/          ← ralph.sh lives here
+  agency-agents/      ← cloned from github.com/msitarzewski/agency-agents
+```
+
+Ralph checks the sibling location first, then the subdirectory.
+
+---
+
+## Conversion Rules
+
+1. **Each user story becomes one JSON entry**
+2. **IDs**: Sequential (US-001, US-002, etc.)
+3. **Priority**: Based on dependency order, then document order
+4. **All stories**: `passes: false` and empty `notes`
+5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
+6. **Always add**: "Typecheck passes" to every story's acceptance criteria
+7. **agents (optional)**:
+   - Set `"agents"` at the PRD level for a default persona that applies to all stories
+   - Override on individual stories with a story-level `"agents"` array
+   - Omit entirely if you don't need persona injection (no regression)
+   - Names must match filenames in `agency-agents/` exactly (without `.md`)
+
+---
+
 ## Story Size: The Number One Rule
 
 **Each story must be completable in ONE Ralph iteration (one context window).**
 
-Ralph spawns a fresh Amp instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
+Ralph spawns a fresh AI instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
 
 ### Right-sized stories:
 - Add a database column and migration
@@ -74,10 +145,6 @@ Stories execute in priority order. Earlier stories must not depend on later ones
 3. UI components that use the backend
 4. Dashboard/summary views that aggregate data
 
-**Wrong order:**
-1. UI component (depends on schema that does not exist yet)
-2. Schema change
-
 ---
 
 ## Acceptance Criteria: Must Be Verifiable
@@ -91,12 +158,6 @@ Each criterion must be something Ralph can CHECK, not something vague.
 - "Typecheck passes"
 - "Tests pass"
 
-### Bad criteria (vague):
-- "Works correctly"
-- "User can do X easily"
-- "Good UX"
-- "Handles edge cases"
-
 ### Always include as final criterion:
 ```
 "Typecheck passes"
@@ -107,42 +168,10 @@ For stories with testable logic, also include:
 "Tests pass"
 ```
 
-### For stories that change UI, also include:
+For stories that change UI, also include:
 ```
 "Verify in browser using dev-browser skill"
 ```
-
-Frontend stories are NOT complete until visually verified. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
-
----
-
-## Conversion Rules
-
-1. **Each user story becomes one JSON entry**
-2. **IDs**: Sequential (US-001, US-002, etc.)
-3. **Priority**: Based on dependency order, then document order
-4. **All stories**: `passes: false` and empty `notes`
-5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-6. **Always add**: "Typecheck passes" to every story's acceptance criteria
-
----
-
-## Splitting Large PRDs
-
-If a PRD has big features, split them:
-
-**Original:**
-> "Add user notification system"
-
-**Split into:**
-1. US-001: Add notifications table to database
-2. US-002: Create notification service for sending notifications
-3. US-003: Add notification bell icon to header
-4. US-004: Create notification dropdown panel
-5. US-005: Add mark-as-read functionality
-6. US-006: Add notification preferences page
-
-Each is one focused change that can be completed and verified independently.
 
 ---
 
@@ -167,6 +196,7 @@ Add ability to mark tasks with different statuses.
   "project": "TaskApp",
   "branchName": "ralph/task-status",
   "description": "Task Status Feature - Track task progress with status indicators",
+  "agents": ["engineering-backend-architect"],
   "userStories": [
     {
       "id": "US-001",
@@ -185,6 +215,7 @@ Add ability to mark tasks with different statuses.
       "id": "US-002",
       "title": "Display status badge on task cards",
       "description": "As a user, I want to see task status at a glance.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Each task card shows colored status badge",
         "Badge colors: gray=pending, blue=in_progress, green=done",
@@ -199,6 +230,7 @@ Add ability to mark tasks with different statuses.
       "id": "US-003",
       "title": "Add status toggle to task list rows",
       "description": "As a user, I want to change task status directly from the list.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Each row has status dropdown or toggle",
         "Changing status saves immediately",
@@ -214,6 +246,7 @@ Add ability to mark tasks with different statuses.
       "id": "US-004",
       "title": "Filter tasks by status",
       "description": "As a user, I want to filter the list to see only certain statuses.",
+      "agents": ["engineering-frontend-developer"],
       "acceptanceCriteria": [
         "Filter dropdown: All | Pending | In Progress | Done",
         "Filter persists in URL params",
@@ -256,3 +289,4 @@ Before writing prd.json, verify:
 - [ ] UI stories have "Verify in browser using dev-browser skill" as criterion
 - [ ] Acceptance criteria are verifiable (not vague)
 - [ ] No story depends on a later story
+- [ ] Agent names (if used) match filenames in agency-agents/ exactly (without .md)

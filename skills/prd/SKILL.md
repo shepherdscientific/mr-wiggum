@@ -67,10 +67,12 @@ Brief description of the feature and the problem it solves.
 Specific, measurable objectives (bullet list).
 
 ### 3. User Stories
+
 Each story needs:
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
 - **Acceptance Criteria:** Verifiable checklist of what "done" means
+- **Agents (optional):** One or more agent persona names from agency-agents/ that should handle this story when run through Ralph
 
 Each story should be small enough to implement in one focused session.
 
@@ -78,6 +80,7 @@ Each story should be small enough to implement in one focused session.
 ```markdown
 ### US-001: [Title]
 **Description:** As a [user], I want [feature] so that [benefit].
+**Agents:** engineering-backend-architect *(optional — omit if not using Ralph agent personas)*
 
 **Acceptance Criteria:**
 - [ ] Specific verifiable criterion
@@ -86,9 +89,10 @@ Each story should be small enough to implement in one focused session.
 - [ ] **[UI stories only]** Verify in browser using dev-browser skill
 ```
 
-**Important:** 
+**Important:**
 - Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
-- **For any story with UI changes:** Always include "Verify in browser using dev-browser skill" as acceptance criteria. This ensures visual verification of frontend work.
+- **For any story with UI changes:** Always include "Verify in browser using dev-browser skill" as acceptance criteria.
+- **Agents** shape the AI persona for that story when run through Ralph. Backend stories typically suit `engineering-backend-architect` or `engineering-senior-developer`; frontend stories suit `engineering-frontend-developer`. Omit if you don't need persona injection.
 
 ### 4. Functional Requirements
 Numbered list of specific functionalities:
@@ -112,8 +116,6 @@ What this feature will NOT include. Critical for managing scope.
 
 ### 8. Success Metrics
 How will success be measured?
-- "Reduce time to complete X by 50%"
-- "Increase conversion rate by 10%"
 
 ### 9. Open Questions
 Remaining questions or areas needing clarification.
@@ -160,6 +162,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ### US-001: Add priority field to database
 **Description:** As a developer, I need to store task priority so it persists across sessions.
+**Agents:** engineering-backend-architect
 
 **Acceptance Criteria:**
 - [ ] Add priority column to tasks table: 'high' | 'medium' | 'low' (default 'medium')
@@ -168,6 +171,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ### US-002: Display priority indicator on task cards
 **Description:** As a user, I want to see task priority at a glance so I know what needs attention first.
+**Agents:** engineering-frontend-developer
 
 **Acceptance Criteria:**
 - [ ] Each task card shows colored priority badge (red=high, yellow=medium, gray=low)
@@ -177,6 +181,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ### US-003: Add priority selector to task edit
 **Description:** As a user, I want to change a task's priority when editing it.
+**Agents:** engineering-frontend-developer
 
 **Acceptance Criteria:**
 - [ ] Priority dropdown in task edit modal
@@ -187,6 +192,7 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ### US-004: Filter tasks by priority
 **Description:** As a user, I want to filter the task list to see only high-priority items when I'm focused.
+**Agents:** engineering-frontend-developer
 
 **Acceptance Criteria:**
 - [ ] Filter dropdown with options: All | High | Medium | Low
@@ -238,4 +244,5 @@ Before saving the PRD:
 - [ ] User stories are small and specific
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
+- [ ] Agent names (if used) match filenames in agency-agents/ exactly (without .md)
 - [ ] Saved to `tasks/prd-[feature-name].md`
