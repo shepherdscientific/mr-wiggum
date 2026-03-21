@@ -1,0 +1,119 @@
+{
+  "project": "Sentinel",
+  "repoPath": "/Users/yoda/code/projects/Sentinel",
+  "branchName": "ralph/sentinel-phase-2",
+  "description": "Sentinel phase 2 — wire up satellite TLE feed, aircraft hover tooltip, Kp index, vessel layer, flight history, and geofence alerts. The repo is a pnpm monorepo at repoPath. Always run `pnpm turbo run typecheck` before committing. Types come from @sentinel/types, flags from @sentinel/flags, data adapters from @sentinel/data-sources. CesiumJS must be lazily imported (never at module top level). Feature flags must be defined in packages/flags/src/definitions.ts before use. See CLAUDE.md in the repo root for full architecture and rules.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "TLE catalog proxy endpoint",
+      "description": "As a user I want to see real satellites on the globe. The SatelliteService fetches /v1/satellites/tle-catalog from the API — that endpoint must be implemented.",
+      "acceptanceCriteria": [
+        "Add GET /v1/satellites/tle-catalog route to apps/api/src/index.ts",
+        "Fetch https://celestrak.org/pub/TLE/active.txt (3-line element format: name, tle1, tle2 repeating)",
+        "Parse into JSON array: [{ id: noradId, name, tle1, tle2, type }] where type is 'debris' if name contains 'DEB', 'rocketBody' if name contains 'R/B', else 'payload'. Extract noradId from tle1 field columns 3-7 (trim whitespace).",
+        "Cache result in Redis under key satellites:tle:cache with 24h TTL (SETEX 86400)",
+        "On subsequent requests within TTL serve from Redis cache",
+        "Add 'satellites' tag to Swagger, document the endpoint",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "CelesTrak active.txt is publicly accessible, no auth required. The SatelliteService in apps/web/src/SatelliteService.ts is already wired up to call this endpoint — just implement the server side."
+    },
+    {
+      "id": "US-002",
+      "title": "Aircraft hover tooltip",
+      "description": "As a user I want to hover over an aircraft on the globe and see its details — callsign, altitude, speed, heading, and whether it is military.",
+      "acceptanceCriteria": [
+        "Add a CesiumJS ScreenSpaceEventHandler for MOUSE_MOVE in AircraftLayer.tsx",
+        "On hover over a billboard entity, show a floating tooltip div positioned at the mouse cursor (offset 12px right, 12px down)",
+        "Tooltip content: callsign (bold), altitude in ft, speed in kts, heading in degrees, red 'MILITARY' badge if aircraft.type === 'military'",
+        "Tooltip uses dark semi-transparent background (#1a1a2e cc), white text, monospace font, border-radius 4px, padding 8px, z-index 9999, pointer-events none",
+        "Tooltip hides when cursor moves off an entity or no aircraft entity is picked",
+        "Use viewer.scene.pick() to get the entity. Store tooltip state in a useRef (not useState) to avoid Cesium entity re-creation on every render",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "viewer.scene and viewer.entities are available since (viewer as any).Cesium is now attached to the viewer object in App.tsx. The ScreenSpaceEventHandler must be created inside the useEffect that already guards on viewer?.Cesium, and torn down in the cleanup function. Do not add new state that would cause AircraftLayer to re-render and recreate Cesium entities."
+    },
+    {
+      "id": "US-003",
+      "title": "Kp index live feed",
+      "description": "As a user I want to see the current planetary Kp index on the threat HUD so I know about space weather affecting comms and sensors.",
+      "acceptanceCriteria": [
+        "Add GET /v1/space-weather/kp endpoint to apps/api/src/index.ts",
+        "Fetch https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json (public, no auth)",
+        "Response is a 2D array; the last row is the most recent: [datetime, Kp, status]. Return { kp: number, updatedAt: string }.",
+        "Cache in Redis under space-weather:kp:cache with 15min TTL (SETEX 900)",
+        "Add 'space-weather' Swagger tag and document the route",
+        "In apps/web/src/ThreatHUD.tsx replace the hardcoded kpIndex = 0 with a useEffect that calls /v1/space-weather/kp every 60 seconds via fetch and updates local state",
+        "Kp >= 5 turns the Kp display amber (#ffaa00), Kp >= 7 turns it red (#ff4444)",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "NOAA SWPC JSON is public and CORS-permissive. The ThreatHUD already has kpIndex rendering logic and alertColor logic — just replace the hardcoded 0 with real data. Keep the fetch in a useEffect with a setInterval and clear it on unmount."
+    },
+    {
+      "id": "US-004",
+      "title": "Vessel layer — AIS simulation adapter and globe rendering",
+      "description": "As a user I want to see vessels on the globe. Since free real-time AIS requires registration, implement a realistic simulation adapter for development that can be swapped for a real AIS source later.",
+      "acceptanceCriteria": [
+        "Create packages/data-sources/src/adapters/ais.ts exporting AisAdapter class implementing the same connect/subscribe/disconnect interface pattern as AdsBAdapter",
+        "Simulation generates 50 vessels in realistic global shipping lanes (North Atlantic, English Channel, Strait of Malacca, Persian Gulf, South China Sea) updating positions every 30s based on heading/speed",
+        "VesselState type already exists in @sentinel/types — use it. Fields: mmsi, name, lat, lon, sogKts, cogDeg, headingDeg, status, destination",
+        "Export AisAdapter from packages/data-sources/src/index.ts",
+        "Add AisAdapter to apps/api/src/index.ts — start it when DATA_SOURCE_AIS flag is true (check via evaluateFlag). Broadcast vessel.batch WebSocket messages every 10s in the broadcast loop.",
+        "Create apps/web/src/VesselStore.ts — Zustand store with vessels: Record<string, Vessel>, addVessel, clearVessels",
+        "Create apps/web/src/VesselLayer.tsx — same pattern as AircraftLayer. Billboard: cyan square icon, scale 0.8. Label: vessel name. Only render when layers.maritime is truthy.",
+        "Mount VesselLayer in App.tsx alongside AircraftLayer, add 'maritime' to initial layers state",
+        "Add maritime toggle to LayerManager",
+        "Wire WebSocket handler to dispatch vessel.batch messages to VesselStore",
+        "Replace hardcoded vesselCount = 0 in ThreatHUD with useVesselStore selector",
+        "Enable DATA_SOURCE_AIS flag default to true in packages/flags/src/definitions.ts (dev only — comment that prod should use real AIS)",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "The LAYER_MARITIME flag already exists in definitions.ts but defaults to false — change it to true for development. The VesselState type should already be in @sentinel/types; check packages/types/src/index.ts first and add it if missing."
+    },
+    {
+      "id": "US-005",
+      "title": "Aircraft click — flight history polyline",
+      "description": "As a user I want to click an aircraft and see its recent flight path drawn on the globe.",
+      "acceptanceCriteria": [
+        "Add a CesiumJS ScreenSpaceEventHandler for LEFT_CLICK in AircraftLayer.tsx",
+        "On click, pick the entity and resolve the aircraft id from entity.id (set entity.id = aircraft.id when creating the entity)",
+        "Fetch GET /v1/aircraft/history?icao={id}&start={now-2h}&end={now} — the endpoint already exists",
+        "Draw a Cesium Polyline entity connecting the historical positions (lat/lon/altitude) using Cesium.Color.CYAN with width 2",
+        "Remove the previous polyline entity when a new aircraft is clicked or the same aircraft is clicked again (toggle)",
+        "If the history endpoint returns an empty array (TimescaleDB not running), show no polyline and do not error",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "The /v1/aircraft/history endpoint already exists in apps/api/src/index.ts and handles the TimescaleDB-unavailable case gracefully (returns []). Store the active polyline entity ref and selected aircraft id in useRef to avoid triggering re-renders."
+    },
+    {
+      "id": "US-006",
+      "title": "In-app alert panel — show squawk 7700 emergency alerts",
+      "description": "As a user I want to see real-time alerts when aircraft squawk emergency codes (7700/7600/7500) so I can react to distress situations.",
+      "acceptanceCriteria": [
+        "In apps/api/src/index.ts, during each ADS-B poll when aircraft data arrives, check for squawk codes 7700 (general emergency), 7600 (radio failure), 7500 (hijack)",
+        "For each matching aircraft publish a Redis pub/sub message to channel alerts:inapp:{sessionId} with AlertEvent payload (already defined in @sentinel/types): { alertId: uuid, severity: 'critical', layer: 'aircraft', description: 'Aircraft {callsign} squawking {squawk} — {meaning}', metadata: { icao, callsign, lat, lon } }",
+        "Broadcast to ALL connected WebSocket sessions (not session-specific) since squawk alerts are global",
+        "In apps/web/src/ThreatHUD.tsx add an alerts panel: clicking 'Alerts N' expands a dropdown list of the last 20 alerts",
+        "Each alert row shows: severity icon (red circle for critical), description, and time since received",
+        "New alerts received via WebSocket alert.inapp message type are prepended to a local alerts array (max 20)",
+        "Alerts counter in ThreatHUD shows the count of unread alerts, resets to 0 when panel is opened",
+        "ALERTS_SQUAWK_EMERGENCY flag is already true by default — gate the server-side squawk check behind it",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "The WebSocket already subscribes to alerts:inapp:* via Redis pub/sub and forwards to clients. The AlertEvent type is in @sentinel/types. The squawk check should deduplicate — don't re-alert for the same aircraft+squawk within a 5 minute window (use a Map<icao, timestamp> in module scope)."
+    }
+  ]
+}
