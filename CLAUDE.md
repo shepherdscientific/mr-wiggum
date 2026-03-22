@@ -55,7 +55,9 @@ Before committing, you must pass:
    ```
    **CRITICAL:** NEVER manually edit prd.json or use sed/awk! This creates duplicate keys. ALWAYS use jq.
 
-2. **Curate `AGENTS.md`**: If you learned a **reusable** pattern (e.g., "Always use X for Y"), add it here. Delete obsolete info.
+2. **Curate `AGENTS.md`**: If you learned a **reusable** pattern, add it as a new bullet point.
+   **⚠️ NEVER rewrite AGENTS.md entirely.** Only ADD new entries or EDIT specific existing lines in-place.
+   If a pattern is no longer valid, mark it `[DEPRECATED]` inline — do NOT delete it.
 
 3. **Audit `progress.txt`**: Append a brief summary of your work for the human supervisor:
    * **What**: Story ID and Title.
@@ -78,3 +80,4 @@ git commit -m "feat(STORY-ID): Brief description"
 * **One Task, One Commit**: Do not drift into secondary tasks. Finish the selected story, then exit.
 * **Don't Commit Broken Code**: If tests fail and you cannot fix them, document the blocker in `AGENTS.md` and exit without committing.
 * **Use jq for prd.json**: NEVER manually edit prd.json - always use the safe jq commands from `AGENTS.md`.
+* **Patch, don't rewrite**: Make surgical, targeted edits to all files — source code, AGENTS.md, and config alike. Never rewrite an entire file to make a small change. Use your editor's diff/patch primitives (Edit, not Write) wherever possible. Rewriting whole files wastes output tokens and risks introducing silent regressions.
