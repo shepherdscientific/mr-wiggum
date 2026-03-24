@@ -24,8 +24,8 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 - One or more of the following AI coding tools installed and authenticated:
   - [Amp CLI](https://ampcode.com) (`amp`)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — `npm install -g @anthropic-ai/claude-code`
-  - [OpenCode](https://opencode.ai) (`opencode`)
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
+  - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini models** (native tool calling via `@ai-sdk/google`; the standalone Gemini CLI has tool calling gaps that break the loop)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) — limited tool calling support; prefer `--tool opencode` with a Gemini model instead
   - OpenAI Codex (`codex`)
 - [aider](https://aider.chat) installed (`pip install aider-chat`) — required for the review gate
 - `jq` installed (`brew install jq` on macOS)
@@ -83,6 +83,48 @@ cp -r skills/ralph ~/.claude/skills/
 # Skip the aider review gate
 SKIP_AIDER_REVIEW=1 ./scripts/ralph/ralph.sh --tool claude 10
 ```
+
+### OpenCode: auto-accepting permissions
+
+OpenCode prompts for tool permissions interactively by default, which blocks the unattended loop. Add a `permission` block to your project's `opencode.json` to pre-approve all tool use:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "google/gemini-2.5-pro",
+  "permission": {
+    "read": "allow",
+    "write": "allow",
+    "bash": "allow"
+  }
+}
+```
+
+Claude Code uses `--dangerously-skip-permissions` for the same effect; Amp uses `--dangerously-allow-all`. The `permission` config is the OpenCode equivalent.
+
+### Using Gemini models via OpenCode
+
+The `--tool gemini` backend uses the Gemini CLI, which has limited tool calling support and will fail on tasks requiring file edits or bash execution. For Gemini models, use OpenCode instead — it connects to the Gemini API natively via `@ai-sdk/google` with full tool support:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "google/gemini-2.5-pro",
+  "permission": { "read": "allow", "write": "allow", "bash": "allow" },
+  "provider": {
+    "google": {
+      "npm": "@ai-sdk/google",
+      "name": "Google",
+      "options": { "apiKey": "{env:GEMINI_API_KEY}" },
+      "models": {
+        "gemini-2.5-pro": { "name": "Gemini 2.5 Pro", "limit": { "context": 1000000, "output": 65536 } }
+      }
+    }
+  }
+}
+```
+
+Then run with `--tool opencode` as usual — no changes to `ralph.sh` needed.
 
 ---
 
@@ -179,7 +221,7 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 ## Key Files
 
 | File | Purpose |
-|------|─────────|
+|------|---------|
 | `ralph.sh` | The bash loop that spawns fresh AI instances |
 | `CLAUDE.md` | Prompt template for Claude Code |
 | `OPENCODE.md` | Prompt template for OpenCode |
