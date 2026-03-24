@@ -5,7 +5,7 @@ You are an autonomous coding agent working on a software project.
 ## Your Task
 
 1. Read the PRD at `prd.json` (in the same directory as this file)
-2. Read the progress log at `progress.txt` (check Codebase Patterns section first)
+2. Read **only the `## Codebase Patterns` section** of `progress.txt` for accumulated patterns — do not read the full file (it grows unboundedly and wastes context)
 3. Check you're on the correct branch from PRD `branchName`. If not, check it out or create from main.
 4. Pick the **highest priority** user story where `passes: false`
 5. Implement that single user story
@@ -14,6 +14,8 @@ You are an autonomous coding agent working on a software project.
 8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
 9. Update the PRD to set `passes: true` for the completed story
 10. Append your progress to `progress.txt`
+
+**Reading budget**: Keep your total file reads under **30k tokens** before starting implementation.
 
 ## Progress Report Format
 
@@ -60,6 +62,8 @@ Before committing, check if any edited files have learnings worth preserving in 
    - Testing approaches for that area
    - Configuration or environment requirements
 
+**⚠️ NEVER rewrite AGENTS.md entirely.** Only append new bullet points or edit specific existing lines in-place. Never delete content — if a pattern is stale, mark it `[DEPRECATED]` inline. Rewriting the whole file loses accumulated knowledge and wastes output tokens.
+
 **Examples of good AGENTS.md additions:**
 - "When modifying X, also update Y to keep them in sync"
 - "This module uses pattern Z for all API calls"
@@ -79,6 +83,7 @@ Only update AGENTS.md if you have **genuinely reusable knowledge** that would he
 - Do NOT commit broken code
 - Keep changes focused and minimal
 - Follow existing code patterns
+- **Patch, don't rewrite**: Make surgical, targeted edits to source files. Never rewrite an entire file to change a few lines — use your editor's diff/patch primitives instead. Rewriting whole files wastes output tokens and risks silent regressions.
 
 ## Browser Testing (Required for Frontend Stories)
 
@@ -105,4 +110,4 @@ If there are still stories with `passes: false`, end your response normally (ano
 - Work on ONE story per iteration
 - Commit frequently
 - Keep CI green
-- Read the Codebase Patterns section in progress.txt before starting
+- Read **only the Codebase Patterns section** of progress.txt before starting
