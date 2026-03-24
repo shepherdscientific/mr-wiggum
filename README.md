@@ -2,13 +2,18 @@
 
 ![Ralph](ralph.webp)
 
-Mr. Wiggum is a fork of [Ralph](https://github.com/snarktank/ralph) — an autonomous AI agent loop that runs AI coding tools ([Amp](https://ampcode.com) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code)) repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
+Mr. Wiggum is a fork of [Ralph](https://github.com/snarktank/ralph) — an autonomous AI agent loop that runs AI coding tools repeatedly until all PRD items are complete. Each iteration is a fresh instance with clean context. Memory persists via git history, `progress.txt`, and `prd.json`.
 
 **What this fork adds on top of Ralph:**
-- **Aider code review gate** — after each implementation, [aider](https://aider.chat) reviews the diff using a local or remote LLM before committing. Critical issues must be fixed; the loop never commits code that fails review.
-- **Local LLM support** — the review step works against any OpenAI-compatible server (llama.cpp, Ollama, LiteLLM, etc.) via `LLM_API_BASE`. No cloud dependency required for the review pass.
-- **`SKIP_AIDER_REVIEW` env var** — opt out of the review step per-run without editing any files. Useful when iterating fast or when the local model server is offline.
-- **Graceful server detection** — if the LLM server is unreachable (5s timeout), the review step skips automatically instead of blocking the loop indefinitely.
+
+- **Multi-tool support** — run the loop with Amp, Claude Code, OpenCode, Gemini CLI, or Codex. Each tool has its own optimised prompt file.
+- **Agent persona injection** — assign specialist personas (e.g. `engineering-backend-architect`, `testing-reality-checker`) to individual stories or the whole PRD. Personas are prepended to the base prompt, shaping the agent's approach per task.
+- **Live STDOUT streaming** — output is streamed to the terminal in real time via `/dev/tty` when available.
+- **Aider code review gate** — after each implementation, [aider](https://aider.chat) reviews the diff before committing. Critical issues must be fixed; the loop never commits code that fails review.
+- **Provider-agnostic review** — the aider review step works against a local LLM server, Gemini, DeepSeek, or any OpenAI-compatible API. Switch providers with a single env var, independently of whichever tool is running the main loop.
+- **PATCH-not-REWRITE guards** — all prompt files explicitly instruct the agent to make surgical edits rather than rewriting entire files, preventing silent regressions and wasted tokens.
+- **`SKIP_AIDER_REVIEW` env var** — opt out of the review step per-run without editing any files.
+- **Graceful server detection** — if the local LLM server is unreachable, the review step skips automatically instead of blocking the loop.
 
 Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
@@ -16,13 +21,15 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 
 ## Prerequisites
 
-- One of the following AI coding tools installed and authenticated:
-  - [Amp CLI](https://ampcode.com) (default)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`npm install -g @anthropic-ai/claude-code`)
+- One or more of the following AI coding tools installed and authenticated:
+  - [Amp CLI](https://ampcode.com) (`amp`)
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — `npm install -g @anthropic-ai/claude-code`
+  - [OpenCode](https://opencode.ai) (`opencode`)
+  - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
+  - OpenAI Codex (`codex`)
 - [aider](https://aider.chat) installed (`pip install aider-chat`) — required for the review gate
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
-- **For local LLM review:** a running OpenAI-compatible server (llama.cpp `llama-server`, Ollama, LiteLLM proxy, etc.)
 
 ---
 
@@ -36,10 +43,14 @@ cp /path/to/mr-wiggum/ralph.sh scripts/ralph/
 cp /path/to/mr-wiggum/aider-review.sh scripts/ralph/
 cp /path/to/mr-wiggum/AGENTS.md scripts/ralph/
 
-# Copy the prompt template for your AI tool of choice:
-cp /path/to/mr-wiggum/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
-# OR
-cp /path/to/mr-wiggum/prompt.md scripts/ralph/prompt.md    # For Amp
+# Copy the prompt file(s) for your tool(s) of choice:
+cp /path/to/mr-wiggum/CLAUDE.md scripts/ralph/     # Claude Code
+cp /path/to/mr-wiggum/prompt.md scripts/ralph/      # Amp
+cp /path/to/mr-wiggum/OPENCODE.md scripts/ralph/    # OpenCode
+cp /path/to/mr-wiggum/GEMINI.md scripts/ralph/      # Gemini CLI
+
+# Optionally copy agent personas:
+cp -r /path/to/mr-wiggum/agency-agents scripts/ralph/
 
 chmod +x scripts/ralph/ralph.sh scripts/ralph/aider-review.sh
 ```
@@ -58,41 +69,127 @@ cp -r skills/ralph ~/.claude/skills/
 
 ---
 
+## Usage
+
+```bash
+# Default tool (amp), 10 iterations
+./scripts/ralph/ralph.sh 10
+
+# Specify a tool
+./scripts/ralph/ralph.sh --tool claude 10
+./scripts/ralph/ralph.sh --tool opencode 10
+./scripts/ralph/ralph.sh --tool gemini 10
+
+# Skip the aider review gate
+SKIP_AIDER_REVIEW=1 ./scripts/ralph/ralph.sh --tool claude 10
+```
+
+---
+
+## Agent Personas
+
+Agent personas allow each story (or the whole PRD) to run with a specialist mindset. Personas are loaded from `agency-agents/` and prepended to the base prompt before each iteration.
+
+### Assigning personas in `prd.json`
+
+```json
+{
+  "agents": ["engineering-software-architect"],
+  "userStories": [
+    {
+      "id": "US-001",
+      "agents": ["engineering-frontend-developer"],
+      "title": "Build the dashboard UI"
+    },
+    {
+      "id": "US-002",
+      "title": "Add API endpoint"
+    }
+  ]
+}
+```
+
+Resolution order: `story.agents` → `prd.agents` → no persona (zero regression — stories without agents run exactly as before).
+
+Multiple agents can be listed — their content is concatenated in order.
+
+### Available personas
+
+27 personas across four categories (see [`agency-agents/README.md`](agency-agents/README.md) for full descriptions):
+
+**Engineering (16):** `engineering-software-architect`, `engineering-backend-architect`, `engineering-frontend-developer`, `engineering-senior-developer`, `engineering-ai-engineer`, `engineering-ai-data-remediation-engineer`, `engineering-data-engineer`, `engineering-database-optimizer`, `engineering-devops-automator`, `engineering-security-engineer`, `engineering-mobile-app-builder`, `engineering-code-reviewer`, `engineering-rapid-prototyper`, `engineering-autonomous-optimization-architect`, `engineering-sre`, `engineering-technical-writer`
+
+**Testing (8):** `testing-accessibility-auditor`, `testing-api-tester`, `testing-evidence-collector`, `testing-performance-benchmarker`, `testing-reality-checker`, `testing-test-results-analyzer`, `testing-tool-evaluator`, `testing-workflow-optimizer`
+
+**Product (1):** `product-manager`
+
+**Design (2):** `design-ui-designer`, `design-ux-architect`
+
+---
+
 ## Aider Review Gate
 
-After each story implementation, `aider-review.sh` runs aider against the current diff before committing. Controlled by environment variables:
+After each story implementation, `aider-review.sh` reviews the diff before committing. The review backend is fully independent of the main loop tool — you can run ralph on a local model and review with Gemini, or vice versa.
+
+### Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
 | `SKIP_AIDER_REVIEW` | `0` | Set to `1` to skip entirely |
-| `LLM_API_BASE` | `http://localhost:8080/v1` | OpenAI-compatible API base URL |
-| `LLM_API_KEY` | `dummy` | API key (`dummy` works for local servers) |
+| `AIDER_REVIEW_MODEL` | *(unset → local)* | Model for review: `gemini/gemini-2.5-pro`, `deepseek/deepseek-chat`, `openai/qwen3-coder-next`, etc. |
+| `AIDER_REVIEW_API_BASE` | `$LLM_API_BASE` | Override API base URL for OpenAI-compatible providers |
+| `AIDER_REVIEW_API_KEY` | `$LLM_API_KEY` | Override API key |
+| `LLM_API_BASE` | `http://localhost:8080/v1` | Local server base URL (used when `AIDER_REVIEW_MODEL` is unset) |
+| `LLM_API_KEY` | `dummy` | Local server key (`dummy` works for most local servers) |
+
+### Provider auto-detection
+
+- **`gemini/*`** — uses `GEMINI_API_KEY`, no base URL needed (native litellm support)
+- **`deepseek/*` or any other prefix** — uses `AIDER_REVIEW_API_BASE` + `AIDER_REVIEW_API_KEY` (falls through to `OPENAI_BASE_URL` / `OPENAI_API_KEY` if set)
+- **Unset** — falls back to local server with health check; skips gracefully if unreachable
+
+### Examples
 
 ```bash
-# Run with local LLM review (default)
-./scripts/ralph/ralph.sh --tool claude 10
+# Local LLM review (default — requires server at localhost:8080)
+./ralph.sh --tool claude 10
 
-# Skip review
-SKIP_AIDER_REVIEW=1 ./scripts/ralph/ralph.sh --tool claude 10
+# Gemini review, any main tool
+export GEMINI_API_KEY=AIza...
+export AIDER_REVIEW_MODEL=gemini/gemini-2.5-pro
+./ralph.sh --tool opencode 10
 
-# Point at a different server
-LLM_API_BASE=http://192.168.8.100:8080/v1 ./scripts/ralph/ralph.sh --tool claude 10
+# DeepSeek review
+export AIDER_REVIEW_MODEL=deepseek/deepseek-chat
+export AIDER_REVIEW_API_BASE=https://api.deepseek.com/v1
+export AIDER_REVIEW_API_KEY=sk-...
+./ralph.sh --tool claude 10
+
+# Ralph on local model, Gemini review (split setup)
+export GEMINI_API_KEY=AIza...
+export AIDER_REVIEW_MODEL=gemini/gemini-2.5-pro
+./ralph.sh --tool opencode 10   # opencode uses local config; review uses Gemini
+
+# Skip review entirely
+SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 ```
-
-If the server is unreachable, the review step skips with a warning rather than blocking the loop.
 
 ---
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+|------|─────────|
 | `ralph.sh` | The bash loop that spawns fresh AI instances |
 | `CLAUDE.md` | Prompt template for Claude Code |
+| `OPENCODE.md` | Prompt template for OpenCode |
+| `GEMINI.md` | Prompt template for Gemini CLI |
 | `prompt.md` | Prompt template for Amp |
-| `aider-review.sh` | Aider-powered code review gate |
+| `AIDER_CODEX.md` | Prompt template for Aider/Codex review loop |
+| `aider-review.sh` | Provider-agnostic code review gate |
 | `AGENTS.md` | Seed pattern library — copy to your project and customise |
-| `prd.json.example` | Example PRD format |
+| `prd.json.example` | Example PRD format (includes `agents` fields) |
+| `agency-agents/` | 27 specialist agent persona files |
 
 ---
 
@@ -100,6 +197,8 @@ If the server is unreachable, the review step skips with a warning rather than b
 
 - [Original Ralph by Geoffrey Huntley](https://ghuntley.com/ralph/)
 - [snarktank/ralph](https://github.com/snarktank/ralph) — upstream repo
+- [msitarzewski/agency-agents](https://github.com/msitarzewski/agency-agents) — source of the persona files
 - [aider](https://aider.chat)
 - [Amp documentation](https://ampcode.com/manual)
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [OpenCode](https://opencode.ai)
