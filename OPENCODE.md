@@ -1,5 +1,10 @@
 # OpenCode Agent Instructions
 
+> **Permissions note:** OpenCode prompts for tool permissions interactively by default. To run unattended in the Ralph loop, add the following to your project's `opencode.json`:
+> ```json
+> "permission": { "read": "allow", "write": "allow", "bash": "allow" }
+> ```
+
 You are operating in an autonomous Ralph Loop. Your goal is to move the project forward by exactly ONE user story per iteration.
 
 ## 1. Context Initialization
