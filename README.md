@@ -24,7 +24,7 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 - One or more of the following AI coding tools installed and authenticated:
   - [Amp CLI](https://ampcode.com) (`amp`)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — `npm install -g @anthropic-ai/claude-code`
-  - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini models** (native tool calling via `@ai-sdk/google`; the standalone Gemini CLI has tool calling gaps that break the loop)
+  - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini and DeepSeek models** (native tool calling; the standalone Gemini CLI has tool calling gaps that break the loop)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) — limited tool calling support; prefer `--tool opencode` with a Gemini model instead
   - OpenAI Codex (`codex`)
 - [aider](https://aider.chat) installed (`pip install aider-chat`) — required for the review gate
@@ -95,10 +95,13 @@ OpenCode prompts for tool permissions interactively by default, which blocks the
   "permission": {
     "read": "allow",
     "write": "allow",
-    "bash": "allow"
+    "bash": "allow",
+    "external_directory": "allow"
   }
 }
 ```
+
+`external_directory` is required separately — OpenCode treats paths outside the project root (e.g. `/tmp/prd.json` written during the loop) as a distinct permission class from `read`/`write`. Without it you’ll still get interactive prompts for those paths even with the other three set.
 
 Claude Code uses `--dangerously-skip-permissions` for the same effect; Amp uses `--dangerously-allow-all`. The `permission` config is the OpenCode equivalent.
 
@@ -110,7 +113,7 @@ The `--tool gemini` backend uses the Gemini CLI, which has limited tool calling 
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "google/gemini-2.5-pro",
-  "permission": { "read": "allow", "write": "allow", "bash": "allow" },
+  "permission": { "read": "allow", "write": "allow", "bash": "allow", "external_directory": "allow" },
   "provider": {
     "google": {
       "npm": "@ai-sdk/google",
@@ -125,6 +128,30 @@ The `--tool gemini` backend uses the Gemini CLI, which has limited tool calling 
 ```
 
 Then run with `--tool opencode` as usual — no changes to `ralph.sh` needed.
+
+### Using OpenRouter with Claude Code
+
+[OpenRouter](https://openrouter.ai) lets you access many models (Anthropic, Google, DeepSeek, Mistral, etc.) through a single API key. Claude Code is the recommended tool for this — the integration is three env vars and no config changes:
+
+```bash
+export ANTHROPIC_BASE_URL=https://openrouter.ai/api
+export ANTHROPIC_AUTH_TOKEN=sk-or-...   # your OpenRouter key
+export ANTHROPIC_API_KEY=               # must be explicitly empty
+
+./scripts/ralph/ralph.sh --tool claude 10
+```
+
+You can also route different task types to different models, which is one of OpenRouter’s main advantages — use a capable model for main coding and a cheaper one for sub-agents:
+
+```bash
+export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6   # main loop
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek/deepseek-chat         # fast sub-tasks
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek/deepseek-chat            # sub-agents
+```
+
+**BYOK (Bring Your Own Key):** You cannot use your existing Anthropic API key directly as an OpenRouter key — they are separate accounts. However, OpenRouter supports linking your Anthropic key under *Settings → Integrations* so that Anthropic model requests route through your own Anthropic account instead of OpenRouter’s shared pool. This avoids spending OpenRouter credits on Anthropic models if you already have an Anthropic subscription.
+
+**Free tier warning:** The OpenRouter free plan gives only **5 requests/day** without purchased credits — not viable for the ralph loop. Add $5 in credits (minimum top-up) to get 50 req/day and access to free-tier models. For serious use, BYOK with your existing Anthropic key is the most cost-effective path.
 
 ---
 
@@ -244,3 +271,4 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 - [Amp documentation](https://ampcode.com/manual)
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
 - [OpenCode](https://opencode.ai)
+- [OpenRouter](https://openrouter.ai)
