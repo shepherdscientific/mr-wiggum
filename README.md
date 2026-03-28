@@ -24,7 +24,7 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 - One or more of the following AI coding tools installed and authenticated:
   - [Amp CLI](https://ampcode.com) (`amp`)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — `npm install -g @anthropic-ai/claude-code`
-  - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini and DeepSeek models** (native tool calling; the standalone Gemini CLI has tool calling gaps that break the loop)
+  - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini, DeepSeek, Kimi, and any OpenRouter model** (native tool calling; the standalone Gemini CLI has tool calling gaps that break the loop)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) — limited tool calling support; prefer `--tool opencode` with a Gemini model instead
   - OpenAI Codex (`codex`)
 - [aider](https://aider.chat) installed (`pip install aider-chat`) — required for the review gate
@@ -129,9 +129,9 @@ The `--tool gemini` backend uses the Gemini CLI, which has limited tool calling 
 
 Then run with `--tool opencode` as usual — no changes to `ralph.sh` needed.
 
-### Using OpenRouter with Claude Code
+### Using OpenRouter with Claude Code (Anthropic models only)
 
-[OpenRouter](https://openrouter.ai) lets you access many models (Anthropic, Google, DeepSeek, Mistral, etc.) through a single API key. Claude Code is the recommended tool for this — the integration is three env vars and no config changes:
+[OpenRouter](https://openrouter.ai) lets you access many models through a single API key. Claude Code is the simplest integration — three env vars, no config changes:
 
 ```bash
 export ANTHROPIC_BASE_URL=https://openrouter.ai/api
@@ -141,17 +141,54 @@ export ANTHROPIC_API_KEY=               # must be explicitly empty
 ./scripts/ralph/ralph.sh --tool claude 10
 ```
 
-You can also route different task types to different models, which is one of OpenRouter’s main advantages — use a capable model for main coding and a cheaper one for sub-agents:
+> **Important:** The Claude Code CLI is hardcoded to Anthropic's provider protocol. Even when routing through OpenRouter, it can only call **Anthropic-hosted models** (Claude Sonnet, Haiku, Opus). You cannot use it to call Kimi, Qwen, Mistral, or other non-Anthropic models — use OpenCode for those instead (see below).
+
+You can route different task types to different Anthropic models via env vars:
 
 ```bash
 export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6   # main loop
-export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek/deepseek-chat         # fast sub-tasks
-export CLAUDE_CODE_SUBAGENT_MODEL=deepseek/deepseek-chat            # sub-agents
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=anthropic/claude-haiku-4-5     # fast sub-tasks
+export CLAUDE_CODE_SUBAGENT_MODEL=anthropic/claude-haiku-4-5        # sub-agents
 ```
 
 **BYOK (Bring Your Own Key):** You cannot use your existing Anthropic API key directly as an OpenRouter key — they are separate accounts. However, OpenRouter supports linking your Anthropic key under *Settings → Integrations* so that Anthropic model requests route through your own Anthropic account instead of OpenRouter’s shared pool. This avoids spending OpenRouter credits on Anthropic models if you already have an Anthropic subscription.
 
-**Free tier warning:** The OpenRouter free plan gives only **5 requests/day** without purchased credits — not viable for the ralph loop. Add $5 in credits (minimum top-up) to get 50 req/day and access to free-tier models. For serious use, BYOK with your existing Anthropic key is the most cost-effective path.
+**Free tier warning:** The OpenRouter free plan gives only **5 requests/day** without purchased credits — not viable for the ralph loop. Add $5 in credits to get 50 req/day. For serious use with Claude, BYOK with your existing Anthropic key is the most cost-effective path.
+
+### Using OpenRouter with OpenCode (any model)
+
+For non-Anthropic models on OpenRouter — Kimi K2.5, Qwen, Mistral, DeepSeek, or any other — use `--tool opencode` with an OpenRouter provider block in `opencode.json`. OpenCode has no provider lock-in and handles tool calling correctly for all of them.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "openrouter/moonshotai/kimi-k2.5",
+  "permission": { "read": "allow", "write": "allow", "bash": "allow", "external_directory": "allow" },
+  "provider": {
+    "openrouter": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenRouter",
+      "options": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      },
+      "models": {
+        "moonshotai/kimi-k2.5": {
+          "name": "Kimi K2.5",
+          "limit": { "context": 131072, "output": 16384 }
+        }
+      }
+    }
+  }
+}
+```
+
+Swap the `model` and the key in `models` to use any other OpenRouter model — the rest of the config stays identical. Then:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+./scripts/ralph/ralph.sh --tool opencode 10
+```
 
 ---
 
