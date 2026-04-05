@@ -1,6 +1,6 @@
 #!/bin/bash
 # Ralph Wiggum - Autonomous AI agent loop
-# Usage: ./ralph.sh [--tool amp|claude|opencode|gemini|codex|kimi] [max_iterations]
+# Usage: ./ralph.sh [--tool amp|claude|opencode|gemini|codex|kimi] [--profile NAME] [max_iterations] [-- codex args...]
 #
 # Agent persona support:
 #   Add "agents" to prd.json at the PRD level (default for all stories) and/or
@@ -29,6 +29,8 @@ set -e
 
 TOOL="amp"        # Default tool
 MAX_ITERATIONS=10
+CODEX_PROFILE="${CODEX_PROFILE:-}"
+CODEX_EXTRA_ARGS=()
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
@@ -53,12 +55,28 @@ done
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        CODEX_EXTRA_ARGS+=("$1")
+        shift
+      done
+      break
+      ;;
     --tool)
       TOOL="$2"
       shift 2
       ;;
     --tool=*)
       TOOL="${1#*=}"
+      shift
+      ;;
+    --profile|--codex-profile)
+      CODEX_PROFILE="$2"
+      shift 2
+      ;;
+    --profile=*|--codex-profile=*)
+      CODEX_PROFILE="${1#*=}"
       shift
       ;;
     *)
@@ -85,7 +103,13 @@ case "$TOOL" in
   claude)   TOOL_MODEL="claude-code" ;;
   opencode) TOOL_MODEL="opencode" ;;
   gemini)   TOOL_MODEL="gemini" ;;
-  codex)    TOOL_MODEL="gpt-4o" ;;
+  codex)
+    if [ -n "$CODEX_PROFILE" ]; then
+      TOOL_MODEL="codex/profile:${CODEX_PROFILE}"
+    else
+      TOOL_MODEL="codex"
+    fi
+    ;;
   kimi)     TOOL_MODEL="${KIMI_MODEL:-openrouter/moonshotai/kimi-k2}" ;;
   *)        TOOL_MODEL="$TOOL" ;;
 esac
@@ -210,7 +234,7 @@ extract_tokens() {
   _COST_USD="null"
 
   case "$tool" in
-    codex|kimi)
+    kimi)
       # Aider: "Tokens: 15.2k sent, 1.2k received. Cost: $0.40 message, ..."
       local raw_sent raw_recv raw_cost
       raw_sent=$(printf '%s\n' "$output" | grep -oE 'Tokens: [0-9]+\.?[0-9]*k? sent' | tail -1 | grep -oE '[0-9]+\.?[0-9]*k?')
@@ -228,6 +252,9 @@ extract_tokens() {
         _TOKENS_OUT=${raw_recv:-0}
       fi
       [ -n "$raw_cost" ] && _COST_USD="$raw_cost"
+      ;;
+    codex)
+      # Codex CLI does not emit a stable token/cost footer we can parse here.
       ;;
     claude)
       # Claude Code CLI: "Total cost: $X.XX"
@@ -328,12 +355,18 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       ;;
 
     "codex")
-      # aider reads instructions from a file; prepend agent content inline
-      cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/AIDER_CODEX.md" > "$TMPPROMPT"
+      cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/CODEX.md" > "$TMPPROMPT"
+      CODEX_ARGS=(exec --full-auto)
+      if [ -n "$CODEX_PROFILE" ]; then
+        CODEX_ARGS+=(--profile "$CODEX_PROFILE")
+      fi
+      if [ ${#CODEX_EXTRA_ARGS[@]} -gt 0 ]; then
+        CODEX_ARGS+=("${CODEX_EXTRA_ARGS[@]}")
+      fi
       if $STREAM_LIVE; then
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        codex "${CODEX_ARGS[@]}" - < "$TMPPROMPT" 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit > "$TMPOUT" 2>&1 || true
+        codex "${CODEX_ARGS[@]}" - < "$TMPPROMPT" > "$TMPOUT" 2>&1 || true
       fi
       ;;
 

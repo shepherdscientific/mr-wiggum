@@ -26,7 +26,7 @@ Based on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) — `npm install -g @anthropic-ai/claude-code`
   - [OpenCode](https://opencode.ai) (`opencode`) — **recommended path for Gemini, DeepSeek, Kimi, and any OpenRouter model** (native tool calling; the standalone Gemini CLI has tool calling gaps that break the loop)
   - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`) — limited tool calling support; prefer `--tool opencode` with a Gemini model instead
-  - OpenAI Codex (`codex`)
+  - OpenAI Codex (`codex`) — supports Codex CLI profiles via `--profile` or `--`
 - [aider](https://aider.chat) installed (`pip install aider-chat`) — required for the review gate
 - `jq` installed (`brew install jq` on macOS)
 - A git repository for your project
@@ -48,6 +48,7 @@ cp /path/to/mr-wiggum/CLAUDE.md scripts/ralph/     # Claude Code
 cp /path/to/mr-wiggum/prompt.md scripts/ralph/      # Amp
 cp /path/to/mr-wiggum/OPENCODE.md scripts/ralph/    # OpenCode
 cp /path/to/mr-wiggum/GEMINI.md scripts/ralph/      # Gemini CLI
+cp /path/to/mr-wiggum/CODEX.md scripts/ralph/       # Codex
 
 # Optionally copy agent personas:
 cp -r /path/to/mr-wiggum/agency-agents scripts/ralph/
@@ -79,6 +80,9 @@ cp -r skills/ralph ~/.claude/skills/
 ./scripts/ralph/ralph.sh --tool claude 10
 ./scripts/ralph/ralph.sh --tool opencode 10
 ./scripts/ralph/ralph.sh --tool gemini 10
+./scripts/ralph/ralph.sh --tool codex 10
+./scripts/ralph/ralph.sh --tool codex --profile kimi 10
+./scripts/ralph/ralph.sh 10 --tool codex -- --profile kimi
 
 # Skip the aider review gate
 SKIP_AIDER_REVIEW=1 ./scripts/ralph/ralph.sh --tool claude 10
@@ -233,6 +237,22 @@ Multiple agents can be listed — their content is concatenated in order.
 
 ---
 
+### Using Codex profiles
+
+`--tool codex` now invokes the real Codex CLI with `codex exec`, not Aider. You can choose a project profile directly:
+
+```bash
+./scripts/ralph/ralph.sh --tool codex --profile kimi 10
+```
+
+If you want to pass raw Codex CLI flags through unchanged, add `--` and put them after it:
+
+```bash
+./scripts/ralph/ralph.sh 10 --tool codex -- --profile kimi --model moonshotai/kimi-k2.5
+```
+
+`--profile` and `--codex-profile` are convenience aliases handled by `ralph.sh`; everything after `--` is forwarded to `codex exec`.
+
 ## Aider Review Gate
 
 After each story implementation, `aider-review.sh` reviews the diff before committing. The review backend is fully independent of the main loop tool — you can run ralph on a local model and review with Gemini, or vice versa.
@@ -291,7 +311,8 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 | `OPENCODE.md` | Prompt template for OpenCode |
 | `GEMINI.md` | Prompt template for Gemini CLI |
 | `prompt.md` | Prompt template for Amp |
-| `AIDER_CODEX.md` | Prompt template for Aider/Codex review loop |
+| `CODEX.md` | Prompt template for Codex |
+| `AIDER_CODEX.md` | Prompt template for Aider-based Kimi loop |
 | `aider-review.sh` | Provider-agnostic code review gate |
 | `AGENTS.md` | Seed pattern library — copy to your project and customise |
 | `prd.json.example` | Example PRD format (includes `agents` fields) |
