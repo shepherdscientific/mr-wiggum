@@ -27,6 +27,12 @@
 
 set -e
 
+# Optional: source llama-manager for local llama-server lifecycle management.
+# Set SKIP_LLAMA_MANAGER=1 to disable entirely (e.g. when using cloud models).
+# shellcheck source=./llama-manager.sh
+[ -f "$(dirname "${BASH_SOURCE[0]}")/llama-manager.sh" ] && \
+  source "$(dirname "${BASH_SOURCE[0]}")/llama-manager.sh" || true
+
 TOOL="amp"        # Default tool
 MAX_ITERATIONS=10
 CODEX_PROFILE="${CODEX_PROFILE:-}"
@@ -280,6 +286,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   echo "==============================================================="
   echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
   echo "==============================================================="
+
+  # Check for llama-manager escalation signal (no-op if not sourced)
+  llama_check_escalate 2>/dev/null || true
 
   # Early exit: all stories already marked complete before this iteration
   if prd_all_complete; then
