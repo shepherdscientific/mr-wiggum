@@ -72,6 +72,7 @@ git commit -m "feat(STORY-ID): Brief description"
 ```
 
 **If all stories in `prd.json` are complete:** Reply with `<promise>COMPLETE</promise>`.
+**Before emitting `<promise>COMPLETE</promise>`, verify by reading `prd.json` that every story has `"passes": true`.**
 **Otherwise:** Simply exit. The loop will restart with a fresh context.
 
 ## 3. Critical Constraints

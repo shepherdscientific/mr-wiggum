@@ -2,7 +2,9 @@
 prd.json
 progress.txt
 .last-branch
-
+.llama-server.pid
+.llama-tier
+.llama-watch.pid
 # Archive is optional to commit
 # archive/
 

@@ -426,25 +426,29 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     printf '%s\n' "$OUTPUT"
   fi
 
-  # -------------------------------------------------------------------------
-  # Completion detection
-  # -------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Completion detection – signal + prd.json verification
+# ---------------------------------------------------------------------------
 
-  # Primary: model emits <promise>COMPLETE</promise>
-  if printf '%s\n' "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+# Primary: model emits <promise>COMPLETE</promise>
+if printf '%s\n' "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  if prd_all_complete; then
     echo ""
     echo "✅ Ralph completed all tasks at iteration $i of $MAX_ITERATIONS"
     exit 0
-  fi
-
-  # Fallback: inspect prd.json directly.
-  # Handles cases where the model finishes but doesn't emit the signal
-  # (e.g. truncated output, JSON-wrapped response, or crash after writing).
-  if prd_all_complete; then
+  else
     echo ""
-    echo "✅ All PRD stories complete (verified via prd.json) at iteration $i"
-    exit 0
+    echo "⚠️  Agent emitted <promise>COMPLETE</promise> but prd.json shows incomplete stories."
+    echo "    Ignoring signal and continuing loop."
   fi
+fi
+
+# Fallback: inspect prd.json directly (handles truncated output, etc.)
+if prd_all_complete; then
+  echo ""
+  echo "✅ All PRD stories complete (verified via prd.json) at iteration $i"
+  exit 0
+fi
 
   echo "Iteration $i complete. Continuing..."
   sleep 2

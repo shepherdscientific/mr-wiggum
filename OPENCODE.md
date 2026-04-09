@@ -30,5 +30,6 @@ You are operating in an autonomous Ralph Loop. Your goal is to move the project 
 
 ## 5. Exit
 - **Do NOT emit `<promise>COMPLETE</promise>` unless `git diff HEAD~1` shows real implementation changes AND all stories in `prd.json` are genuinely complete.**
+- **Before emitting `<promise>COMPLETE</promise>`, run `cat prd.json` and verify that every story has `"passes": true`. Never rely on memory.**
 - If ALL stories in `prd.json` are done: reply with: <promise>COMPLETE</promise>
 - Otherwise, just state the single task is finished and exit.
