@@ -28,10 +28,13 @@
 set -e
 
 # Optional: source llama-manager for local llama-server lifecycle management.
-# Set SKIP_LLAMA_MANAGER=1 to disable entirely (e.g. when using cloud models).
+# Only active when LLAMA_MANAGER=1 is explicitly set — zero impact on cloud runs.
 # shellcheck source=./llama-manager.sh
-[ -f "$(dirname "${BASH_SOURCE[0]}")/llama-manager.sh" ] && \
-  source "$(dirname "${BASH_SOURCE[0]}")/llama-manager.sh" || true
+if [ "${LLAMA_MANAGER:-0}" = "1" ]; then
+  _lm_file="$(dirname "${BASH_SOURCE[0]}")/llama-manager.sh"
+  [ -f "$_lm_file" ] && source "$_lm_file" || echo "⚠️  LLAMA_MANAGER=1 but llama-manager.sh not found beside ralph.sh"
+  unset _lm_file
+fi
 
 TOOL="amp"        # Default tool
 MAX_ITERATIONS=10

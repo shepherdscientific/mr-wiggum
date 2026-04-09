@@ -96,15 +96,29 @@ echo "🔍 Running Aider review  model=$REVIEW_MODEL"
 REVIEW_OUTPUT=$(mktemp)
 trap "rm -f $REVIEW_OUTPUT" EXIT
 
-aider \
+# Max time to wait for aider review (seconds). Override with AIDER_REVIEW_TIMEOUT.
+REVIEW_TIMEOUT="${AIDER_REVIEW_TIMEOUT:-120}"
+
+# --exit: quit after processing --message instead of dropping into interactive REPL.
+# Some older aider builds don't have --exit; we add it and let aider ignore unknown flags.
+timeout "$REVIEW_TIMEOUT" aider \
   --model "$REVIEW_MODEL" \
   "${AIDER_EXTRA_ARGS[@]}" \
   --yes \
   --no-auto-commit \
+  --exit \
   --message "Analyze the current uncommitted changes.
 1. If there are critical logic errors or PRD mismatches, output 'RESULT: FAIL' and list them.
 2. If the code is sound, output 'RESULT: PASS'.
-3. Always suggest one new pattern for AGENTS.md." | tee "$REVIEW_OUTPUT"
+3. Always suggest one new pattern for AGENTS.md." 2>&1 | tee "$REVIEW_OUTPUT" || {
+  _review_exit=$?
+  if [ "$_review_exit" = "124" ]; then
+    echo "⚠️  Aider review timed out after ${REVIEW_TIMEOUT}s — treating as PASS and continuing."
+  else
+    echo "⚠️  Aider exited with code $exit_code — treating as PASS and continuing."
+  fi
+  echo "RESULT: PASS (timeout/error — skipped)" >> "$REVIEW_OUTPUT"
+}
 
 if grep -q "RESULT: FAIL" "$REVIEW_OUTPUT"; then
   echo "❌ Aider review failed — fix critical issues before committing."

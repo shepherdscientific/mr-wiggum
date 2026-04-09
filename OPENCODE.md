@@ -23,10 +23,12 @@ You are operating in an autonomous Ralph Loop. Your goal is to move the project 
 - **Mandatory:** Run `./scripts/ralph/aider-review.sh`. You MUST apply any fixes marked as "Critical."
 
 ## 4. State Update
-- If successful, update `prd.json` setting `passes: true` for the story.
+- If successful, update `prd.json` setting `passes: true` for **the single story you just implemented**.
+- **CRITICAL — never bulk-update multiple stories.** Only mark a story `passes: true` after you have verifiably implemented and tested it in this iteration. Marking stories complete without doing the work is a critical failure.
 - Append a brief summary to `progress.txt` following the established format.
 - If you discovered a new reusable pattern, add it to `AGENTS.md`.
 
 ## 5. Exit
-- If ALL stories in `prd.json` are done, reply with: <promise>COMPLETE</promise>
-- Otherwise, just state the task is finished and exit.
+- **Do NOT emit `<promise>COMPLETE</promise>` unless `git diff HEAD~1` shows real implementation changes AND all stories in `prd.json` are genuinely complete.**
+- If ALL stories in `prd.json` are done: reply with: <promise>COMPLETE</promise>
+- Otherwise, just state the single task is finished and exit.
