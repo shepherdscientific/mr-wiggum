@@ -265,25 +265,32 @@ _lm_wait_healthy() {
 # ---------------------------------------------------------------------------
 llama_ctx_fill() {
   local slots_json
-  slots_json=$(curl -s "http://localhost:${_LM_PORT}/slots" 2>/dev/null) || true
+  # -sf: silent + fail-on-HTTP-error; empty body → "unavailable"
+  slots_json=$(curl -sf "http://localhost:${_LM_PORT}/slots" 2>/dev/null) || true
 
-  if [ -z "$slots_json" ] || ! echo "$slots_json" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+  if [ -z "$slots_json" ]; then
     echo "unavailable"
     return 0
   fi
 
-  # Average fill ratio across all active slots
-  echo "$slots_json" | python3 - <<'PY'
-import sys, json
-slots = json.load(sys.stdin)
-active = [s for s in slots if s.get("is_processing") or s.get("n_ctx_used", 0) > 0]
-if not active:
-    # nothing processing — use global n_ctx_used if present, else 0
-    all_used = [s.get("n_ctx_used", 0) / max(s.get("n_ctx", 1), 1) for s in slots]
-    print(f"{max(all_used):.4f}" if all_used else "0.0")
-else:
-    ratios = [s.get("n_ctx_used", 0) / max(s.get("n_ctx", 1), 1) for s in active]
-    print(f"{sum(ratios) / len(ratios):.4f}")
+  # Pass JSON via env var to avoid any stdin/pipe/echo quoting edge cases.
+  # Single python3 call with try/except — all errors produce "unavailable".
+  LLAMA_SLOTS_JSON="$slots_json" python3 - 2>/dev/null <<'PY' || echo "unavailable"
+import os, json
+try:
+    slots = json.loads(os.environ["LLAMA_SLOTS_JSON"])
+    if not isinstance(slots, list):
+        raise ValueError("unexpected shape")
+    active = [s for s in slots if isinstance(s, dict) and
+              (s.get("is_processing") or s.get("n_ctx_used", 0) > 0)]
+    pool = active if active else [s for s in slots if isinstance(s, dict)]
+    if not pool:
+        print("0.0")
+    else:
+        ratios = [s.get("n_ctx_used", 0) / max(s.get("n_ctx", 1), 1) for s in pool]
+        print(f"{sum(ratios) / len(ratios):.4f}")
+except Exception:
+    print("unavailable")
 PY
 }
 
@@ -323,8 +330,8 @@ _lm_summarise_and_restart() {
   echo "  [llama-manager] 📝 Requesting context summary before restart..." >&2
 
   # Best-effort — if the server is too full to respond, skip summarisation
-  local summary
-  summary=$(curl -s -m 60 \
+  local summary raw_resp
+  raw_resp=$(curl -sf -m 60 \
     -H "Content-Type: application/json" \
     -d '{
       "model": "local",
@@ -340,9 +347,20 @@ _lm_summarise_and_restart() {
         }
       ]
     }' \
-    "http://localhost:${summarise_port}/v1/chat/completions" 2>/dev/null \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['choices'][0]['message']['content'])" 2>/dev/null \
-  ) || summary=""
+    "http://localhost:${summarise_port}/v1/chat/completions" 2>/dev/null) || raw_resp=""
+
+  summary=""
+  if [ -n "$raw_resp" ]; then
+    summary=$(LLAMA_RESP="$raw_resp" python3 - 2>/dev/null <<'PY' || true
+import os, json
+try:
+    d = json.loads(os.environ["LLAMA_RESP"])
+    print(d["choices"][0]["message"]["content"])
+except Exception:
+    pass
+PY
+  )
+  fi
 
   if [ -n "$summary" ]; then
     printf '## Context carry-forward (auto-summarised before server restart)\n\n%s\n\n---\n\n' "$summary" > "$carry_file"
@@ -393,20 +411,28 @@ llama_watch() {
       continue
     fi
 
-    # Compare with python (bash can't do float comparison reliably)
+    # Compare with python (bash can't do float comparison reliably).
+    # Values injected via env to avoid inline quoting / injection issues.
     local action
-    action=$(python3 -c "
-fill = float('$fill')
-warn = float('$_LM_CTX_WARN')
-esc  = float('$_LM_CTX_ESCALATE')
-pct  = int(fill * 100)
-if fill >= esc:
-    print(f'ESCALATE {pct}')
-elif fill >= warn:
-    print(f'WARN {pct}')
-else:
-    print(f'OK {pct}')
-" 2>/dev/null) || continue
+    action=$(LM_FILL="$fill" LM_WARN="$_LM_CTX_WARN" LM_ESC="$_LM_CTX_ESCALATE" \
+      python3 - 2>/dev/null <<'PY' || true
+import os
+try:
+    fill = float(os.environ["LM_FILL"])
+    warn = float(os.environ["LM_WARN"])
+    esc  = float(os.environ["LM_ESC"])
+    pct  = int(fill * 100)
+    if fill >= esc:
+        print(f"ESCALATE {pct}")
+    elif fill >= warn:
+        print(f"WARN {pct}")
+    else:
+        print(f"OK {pct}")
+except Exception:
+    print("OK 0")
+PY
+    )
+    [ -z "$action" ] && continue
 
     local state="${action%% *}"
     local pct="${action##* }"
