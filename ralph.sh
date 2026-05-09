@@ -10,6 +10,14 @@
 #   Agent names must match filenames in agency-agents/ (without the .md extension).
 #   Example: "agents": ["engineering-software-architect"]
 #            → loads agency-agents/engineering/engineering-software-architect.md
+#
+# Local↔remote failover:
+#   Each iteration, ralph estimates token cost from the iteration's prompt
+#   inputs (agent prefix + tool-specific base file + prd.json + progress.txt)
+#   plus RALPH_AGENT_READ_BUDGET. If the estimate exceeds RALPH_LOCAL_CONTEXT_PCT%
+#   of RALPH_LOCAL_CONTEXT_MAX, it sources RALPH_REMOTE_ENV. If the local
+#   llama-server isn't reachable, same thing. Otherwise it sources RALPH_LOCAL_ENV.
+#   See .env.example for the full set of knobs.
 
 set -e
 
@@ -20,6 +28,18 @@ PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+COST_LOG="$SCRIPT_DIR/.ralph-cost.log"
+
+# ---------------------------------------------------------------------------
+# Local↔remote failover configuration (all overridable via env / .env)
+# ---------------------------------------------------------------------------
+RALPH_LOCAL_ENV="${RALPH_LOCAL_ENV:-$HOME/.local/bin/ralph-local-llama.env}"
+RALPH_REMOTE_ENV="${RALPH_REMOTE_ENV:-$HOME/.local/bin/ralph-opencode-anthropic.env}"
+RALPH_LOCAL_CONTEXT_MAX="${RALPH_LOCAL_CONTEXT_MAX:-131072}"
+RALPH_LOCAL_CONTEXT_PCT="${RALPH_LOCAL_CONTEXT_PCT:-80}"
+RALPH_AGENT_READ_BUDGET="${RALPH_AGENT_READ_BUDGET:-30000}"
+RALPH_LOCAL_LLAMA_URL="${RALPH_LOCAL_LLAMA_URL:-http://localhost:8080/health}"
+LOCAL_THRESHOLD=$(( RALPH_LOCAL_CONTEXT_MAX * RALPH_LOCAL_CONTEXT_PCT / 100 ))
 
 # ---------------------------------------------------------------------------
 # Locate agency-agents directory
@@ -77,11 +97,13 @@ if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
     mkdir -p "$ARCHIVE_FOLDER"
     [ -f "$PRD_FILE" ] && cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
     [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
+    [ -f "$COST_LOG" ] && cp "$COST_LOG" "$ARCHIVE_FOLDER/"
     echo "   Archived to: $ARCHIVE_FOLDER"
 
     echo "# Ralph Progress Log" > "$PROGRESS_FILE"
     echo "Started: $(date)" >> "$PROGRESS_FILE"
     echo "---" >> "$PROGRESS_FILE"
+    : > "$COST_LOG"
   fi
 fi
 
@@ -113,6 +135,78 @@ prd_all_complete() {
   local incomplete
   incomplete=$(jq '[.userStories[] | select(.passes != true)] | length' "$PRD_FILE" 2>/dev/null) || return 1
   [ "$incomplete" = "0" ]
+}
+
+# ---------------------------------------------------------------------------
+# Failover helpers — keep these dumb and side-effect-free except apply_/log_.
+# ---------------------------------------------------------------------------
+
+# Map a tool name to its base prompt file (the one each case branch uses).
+base_prompt_for_tool() {
+  case "$1" in
+    amp)      echo "$SCRIPT_DIR/prompt.md" ;;
+    claude)   echo "$SCRIPT_DIR/CLAUDE.md" ;;
+    opencode) echo "$SCRIPT_DIR/OPENCODE.md" ;;
+    gemini)   echo "$SCRIPT_DIR/GEMINI.md" ;;
+    codex)    echo "$SCRIPT_DIR/AIDER_CODEX.md" ;;
+    *)        echo "$SCRIPT_DIR/prompt.md" ;;
+  esac
+}
+
+# Estimate token count for the upcoming iteration. Sums bytes of the agent
+# prefix file + tool-specific base prompt + prd.json + progress.txt, then
+# divides by 3 (conservative chars-per-token for code-heavy English) and
+# adds RALPH_AGENT_READ_BUDGET for files the agent will read on top.
+# $1 — agent prefix file path (may not exist or be empty)
+estimate_input_tokens() {
+  local agent_prefix_file="$1"
+  local base_prompt
+  base_prompt=$(base_prompt_for_tool "$TOOL")
+  local total_chars=0 f
+  for f in "$agent_prefix_file" "$base_prompt" "$PRD_FILE" "$PROGRESS_FILE"; do
+    [ -f "$f" ] && total_chars=$(( total_chars + $(wc -c < "$f") ))
+  done
+  echo $(( total_chars / 3 + RALPH_AGENT_READ_BUDGET ))
+}
+
+# Probe local llama-server. 3s timeout — long enough for slow boot, short
+# enough not to stall an iteration when the server is gone.
+llama_reachable() {
+  curl -sf --max-time 3 "$RALPH_LOCAL_LLAMA_URL" >/dev/null 2>&1
+}
+
+# Decide route for this iteration. Echoes "local" or "remote".
+# Order: explicit override > context-fits check > reachability check.
+pick_endpoint() {
+  local est=$1
+  if [ "${RALPH_FORCE_REMOTE:-0}" = "1" ];     then echo "remote"; return; fi
+  if [ "${RALPH_DISABLE_FAILOVER:-0}" = "1" ]; then echo "local";  return; fi
+  if [ "$est" -gt "$LOCAL_THRESHOLD" ];        then echo "remote"; return; fi
+  if ! llama_reachable;                        then echo "remote"; return; fi
+  echo "local"
+}
+
+# Source the env file matching the chosen endpoint. Set -a/+a so vars
+# defined inside the file are exported even if the file omits `export`.
+apply_endpoint_env() {
+  local endpoint=$1 env_file
+  if [ "$endpoint" = "remote" ]; then env_file="$RALPH_REMOTE_ENV"
+  else                               env_file="$RALPH_LOCAL_ENV"
+  fi
+  if [ -f "$env_file" ]; then
+    # shellcheck disable=SC1090
+    set -a; source "$env_file"; set +a
+  else
+    echo "  ⚠️  Warning: $endpoint env file not found: $env_file" >&2
+  fi
+}
+
+# Append a tab-separated line to .ralph-cost.log. Post-process with awk
+# to compute spend (multiply remote tokens by your provider's rate).
+log_iteration() {
+  local iter=$1 endpoint=$2 est=$3
+  printf "%s\titer=%d\ttool=%s\tendpoint=%s\test_tokens=%d\n" \
+    "$(date +%Y-%m-%dT%H:%M:%S%z)" "$iter" "$TOOL" "$endpoint" "$est" >> "$COST_LOG"
 }
 
 # ---------------------------------------------------------------------------
@@ -181,6 +275,16 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # -------------------------------------------------------------------------
   AGENT_PREFIX_FILE=$(mktemp)
   write_agent_prefix "$AGENT_PREFIX_FILE" || true   # failure = no agents, that's fine
+
+  # -------------------------------------------------------------------------
+  # Decide local↔remote, source the matching env, log it.
+  # MUST happen before the agent runs — agents read endpoint env on startup.
+  # -------------------------------------------------------------------------
+  EST=$(estimate_input_tokens "$AGENT_PREFIX_FILE")
+  ENDPOINT=$(pick_endpoint "$EST")
+  apply_endpoint_env "$ENDPOINT"
+  log_iteration "$i" "$ENDPOINT" "$EST"
+  echo "  📡 Endpoint: $ENDPOINT  (est=$EST tok, threshold=$LOCAL_THRESHOLD)"
 
   # -------------------------------------------------------------------------
   # Build the combined prompt (agent prefix + base instruction file)
