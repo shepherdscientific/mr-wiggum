@@ -46,7 +46,14 @@ Before committing, you must pass:
    - If Aider reports a blocker you cannot fix, document it in `AGENTS.md` and exit without committing  
 4. **Manual Verification**: If behaviour changed, verify against acceptance criteria  
 
-### Step 4: Update Documentation & Logs
+### Step 4: Commit Changes
+
+```bash
+git add -A
+git commit -m "feat(STORY-ID): Brief description"
+```
+
+### Step 5: Update Documentation & Logs
 
 1. **Update `prd.json`**: Mark the completed story as `passes: true` using the SAFE jq command from `AGENTS.md`:
    ```bash
@@ -64,13 +71,6 @@ Before committing, you must pass:
    * **Changes**: Files modified.
    * **Learnings**: Any critical context for the next iteration.
 
-### Step 5: Commit & Exit
-
-```bash
-git add -A
-git commit -m "feat(STORY-ID): Brief description"
-```
-
 **If all stories in `prd.json` are complete:** Reply with `<promise>COMPLETE</promise>`.
 **Otherwise:** Simply exit. The loop will restart with a fresh context.
 
@@ -78,6 +78,7 @@ git commit -m "feat(STORY-ID): Brief description"
 
 * **No "Memory"**: Never refer to "previous sessions." If it isn't in the files or git, it didn't happen.
 * **One Task, One Commit**: Do not drift into secondary tasks. Finish the selected story, then exit.
+* **Commit Before State Update**: Always commit (`git add -A && git commit -m "feat(STORY-ID): ..."`) **before** updating `prd.json`. If the commit fails, do NOT mark the story complete.
 * **Don't Commit Broken Code**: If tests fail and you cannot fix them, document the blocker in `AGENTS.md` and exit without committing.
 * **Use jq for prd.json**: NEVER manually edit prd.json - always use the safe jq commands from `AGENTS.md`.
 * **Patch, don't rewrite**: Make surgical, targeted edits to all files — source code, AGENTS.md, and config alike. Never rewrite an entire file to make a small change. Use your editor's diff/patch primitives (Edit, not Write) wherever possible. Rewriting whole files wastes output tokens and risks introducing silent regressions.

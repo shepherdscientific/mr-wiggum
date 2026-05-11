@@ -369,6 +369,19 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   fi
 
   # -------------------------------------------------------------------------
+  # Post-iteration verification: ensure the agent committed its work
+  # -------------------------------------------------------------------------
+  if ! git -C "$SCRIPT_DIR" diff --quiet --exit-code 2>/dev/null || \
+     ! git -C "$SCRIPT_DIR" diff --cached --quiet --exit-code 2>/dev/null; then
+    UNCOMMITTED=$(git -C "$SCRIPT_DIR" status --porcelain | wc -l | tr -d ' ')
+    echo ""
+    echo "  ⚠️  Warning: $UNCOMMITTED uncommitted file(s) detected after iteration $i."
+    echo "     The agent may have modified files but did not commit. Auto-committing..."
+    git -C "$SCRIPT_DIR" add -A
+    git -C "$SCRIPT_DIR" commit -m "chore(ralph): auto-commit uncommitted changes from iteration $i" || true
+  fi
+
+  # -------------------------------------------------------------------------
   # Completion detection
   # -------------------------------------------------------------------------
 

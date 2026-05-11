@@ -22,11 +22,18 @@ You are operating in an autonomous Ralph Loop. Your goal is to move the project 
 - Run `pytest`.
 - **Mandatory:** Run `./scripts/ralph/aider-review.sh`. You MUST apply any fixes marked as "Critical."
 
-## 4. State Update
+## 4. Commit Changes
+- Stage and commit all changes before updating state:
+  ```bash
+  git add -A
+  git commit -m "feat(STORY-ID): Brief description of what was implemented"
+  ```
+
+## 5. State Update
 - If successful, update `prd.json` setting `passes: true` for the story.
 - Append a brief summary to `progress.txt` following the established format.
 - If you discovered a new reusable pattern, add it to `AGENTS.md`.
 
-## 5. Exit
+## 6. Exit
 - If ALL stories in `prd.json` are done, reply with: <promise>COMPLETE</promise>
 - Otherwise, just state the task is finished and exit.
