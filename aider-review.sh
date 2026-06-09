@@ -77,6 +77,15 @@ elif [ "$PROVIDER" = "gemini" ]; then
   # aider/litellm picks up GEMINI_API_KEY automatically; passing explicitly for clarity
   export GEMINI_API_KEY="$KEY"
 
+elif [ "$PROVIDER" = "openrouter" ]; then
+  # ── OpenRouter (native litellm support — reads OPENROUTER_API_KEY, no base) ─
+  KEY="${AIDER_REVIEW_API_KEY:-${OPENROUTER_API_KEY:-}}"
+  if [ -z "$KEY" ]; then
+    echo "⚠️  AIDER_REVIEW_MODEL=openrouter/* but OPENROUTER_API_KEY is not set — skipping review."
+    exit 0
+  fi
+  export OPENROUTER_API_KEY="$KEY"
+
 else
   # ── OpenAI-compatible (DeepSeek, any other API) ──────────────────────────
   API_BASE="${AIDER_REVIEW_API_BASE:-${OPENAI_BASE_URL:-${LLM_API_BASE:-}}}"
@@ -91,24 +100,61 @@ else
 fi
 
 # -------------------------------------------------------------------------
-echo "🔍 Running Aider review  model=$REVIEW_MODEL"
+# Capture the changes to review. Aider with --message alone does NOT see the
+# working-tree diff (it only sees files explicitly added to the chat), so the
+# model would otherwise reply "please provide the git diff". Embed it directly.
+REVIEW_DIFF="$(git diff HEAD 2>/dev/null)"
+UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null)"
+if [ -n "$UNTRACKED" ]; then
+  while IFS= read -r _f; do
+    [ -f "$_f" ] && REVIEW_DIFF="$REVIEW_DIFF
+=== NEW FILE: $_f ===
+$(cat "$_f" 2>/dev/null)"
+  done <<< "$UNTRACKED"
+fi
+# Fall back to the latest commit when nothing is pending (review after commit).
+if [ -z "$(printf '%s' "$REVIEW_DIFF" | tr -d '[:space:]')" ]; then
+  REVIEW_DIFF="(no uncommitted changes; reviewing the latest commit)
+$(git show --stat --patch HEAD 2>/dev/null)"
+fi
+# Cap size so a large diff doesn't blow the context window.
+REVIEW_DIFF="$(printf '%s' "$REVIEW_DIFF" | head -c 150000)"
+
+echo "🔍 Running Aider review  model=$REVIEW_MODEL  ($(printf '%s' "$REVIEW_DIFF" | wc -l) diff lines)"
 
 REVIEW_OUTPUT=$(mktemp)
 trap "rm -f $REVIEW_OUTPUT" EXIT
 
+set +e
 aider \
   --model "$REVIEW_MODEL" \
   "${AIDER_EXTRA_ARGS[@]}" \
   --yes \
   --no-auto-commit \
-  --message "Analyze the current uncommitted changes.
-1. If there are critical logic errors or PRD mismatches, output 'RESULT: FAIL' and list them.
-2. If the code is sound, output 'RESULT: PASS'.
-3. Always suggest one new pattern for AGENTS.md." | tee "$REVIEW_OUTPUT"
+  --message "You are a senior code reviewer. Review ONLY the diff below — do NOT ask for more files or additional context; everything you need is included.
+1. If there are critical logic errors, security issues, or PRD mismatches, print a line 'RESULT: FAIL' and list them.
+2. If the code is sound, print a line 'RESULT: PASS'.
+3. Always suggest one new pattern for AGENTS.md.
+You MUST print exactly one of 'RESULT: PASS' or 'RESULT: FAIL'.
+
+--- DIFF UNDER REVIEW ---
+$REVIEW_DIFF" 2>&1 | tee "$REVIEW_OUTPUT"
+AIDER_EXIT=${PIPESTATUS[0]}
+set -e
 
 if grep -q "RESULT: FAIL" "$REVIEW_OUTPUT"; then
   echo "❌ Aider review failed — fix critical issues before committing."
   exit 1
+fi
+
+# A genuine review MUST emit "RESULT: PASS". If neither PASS nor FAIL appears the
+# model/provider call errored (e.g. litellm could not route the model) — never
+# report a false "passed".
+if ! grep -q "RESULT: PASS" "$REVIEW_OUTPUT"; then
+  echo -e "\033[33m⚠️  Aider review did NOT run — no RESULT produced (aider exit=$AIDER_EXIT). This is NOT a pass.\033[0m"
+  echo "   Likely an AIDER_REVIEW_MODEL/provider or API-key issue (e.g. use openrouter/google/gemini-2.5-pro)."
+  echo "   Set SKIP_AIDER_REVIEW=1 to intentionally skip the gate."
+  exit 0
 fi
 
 echo "✅ Aider review passed."

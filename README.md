@@ -242,7 +242,7 @@ After each story implementation, `aider-review.sh` reviews the diff before commi
 | Variable | Default | Description |
 |---|---|---|
 | `SKIP_AIDER_REVIEW` | `0` | Set to `1` to skip entirely |
-| `AIDER_REVIEW_MODEL` | *(unset → local)* | Model for review: `gemini/gemini-2.5-pro`, `deepseek/deepseek-chat`, `openai/qwen3-coder-next`, etc. |
+| `AIDER_REVIEW_MODEL` | *(unset → local)* | Model for review: `openrouter/moonshotai/kimi-k2.6`, `gemini/gemini-2.5-pro`, `deepseek/deepseek-chat`, etc. |
 | `AIDER_REVIEW_API_BASE` | `$LLM_API_BASE` | Override API base URL for OpenAI-compatible providers |
 | `AIDER_REVIEW_API_KEY` | `$LLM_API_KEY` | Override API key |
 | `LLM_API_BASE` | `http://localhost:8080/v1` | Local server base URL (used when `AIDER_REVIEW_MODEL` is unset) |
@@ -251,8 +251,11 @@ After each story implementation, `aider-review.sh` reviews the diff before commi
 ### Provider auto-detection
 
 - **`gemini/*`** — uses `GEMINI_API_KEY`, no base URL needed (native litellm support)
+- **`openrouter/*`** — uses `OPENROUTER_API_KEY`, no base URL needed (native litellm support). Use this for Kimi/Qwen/Gemini/Claude etc. via OpenRouter, e.g. `openrouter/moonshotai/kimi-k2.6`. (A bare `google/gemini-2.5-pro` has **no** litellm route — prefix it with `openrouter/`.)
 - **`deepseek/*` or any other prefix** — uses `AIDER_REVIEW_API_BASE` + `AIDER_REVIEW_API_KEY` (falls through to `OPENAI_BASE_URL` / `OPENAI_API_KEY` if set)
 - **Unset** — falls back to local server with health check; skips gracefully if unreachable
+
+The gate **embeds the working-tree diff** in the review prompt (so the model can't reply "show me the diff"), and only reports success on an explicit `RESULT: PASS`. A model/provider error produces a clear "did NOT run" warning — **never a false pass**.
 
 ### Examples
 
@@ -270,6 +273,10 @@ export AIDER_REVIEW_MODEL=deepseek/deepseek-chat
 export AIDER_REVIEW_API_BASE=https://api.deepseek.com/v1
 export AIDER_REVIEW_API_KEY=sk-...
 ./ralph.sh --tool claude 10
+
+# Recommended: cheap DeepSeek coder + independent Kimi reviewer
+source .env.deepseek-kimi        # OPENCODE_MODEL=deepseek-chat + AIDER_REVIEW_MODEL=openrouter/moonshotai/kimi-k2.6
+./ralph.sh --tool opencode 7
 
 # Ralph on local model, Gemini review (split setup)
 export GEMINI_API_KEY=AIza...
@@ -296,6 +303,21 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 | `AGENTS.md` | Seed pattern library — copy to your project and customise |
 | `prd.json.example` | Example PRD format (includes `agents` fields) |
 | `agency-agents/` | 27 specialist agent persona files |
+| `.env.deepseek-kimi` | Ready-to-`source` config: DeepSeek coding loop + Kimi K2.6 review (fill in two keys) |
+| `.ralph-cost.log` | Per-iteration spend log (see Cost tracking below) |
+
+### Cost tracking
+
+Each iteration appends a tab-separated line to `.ralph-cost.log` with the
+timestamp, iteration, tool, **model**, endpoint, estimated input tokens, and an
+**estimated input cost** (`est_cost_usd = est_tokens × RALPH_COST_PER_MTOK_INPUT`;
+USD per 1M input tokens, default `0.27` ≈ DeepSeek — set `0.74` for Kimi, etc.).
+A best-effort second line records the tool's own reported `actual_cost_usd`
+(or `NA` when the tool prints none). Tally estimated spend with:
+
+```bash
+awk -F'\t' '{for(i=1;i<=NF;i++) if($i ~ /^est_cost_usd=/){split($i,a,"=");s+=a[2]}} END{printf "estimated spend: $%.2f\n", s}' .ralph-cost.log
+```
 
 ---
 

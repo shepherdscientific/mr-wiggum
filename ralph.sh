@@ -201,12 +201,18 @@ apply_endpoint_env() {
   fi
 }
 
-# Append a tab-separated line to .ralph-cost.log. Post-process with awk
-# to compute spend (multiply remote tokens by your provider's rate).
+# Append a tab-separated line to .ralph-cost.log including the model and an
+# estimated input cost. est_cost_usd = est_tokens × RALPH_COST_PER_MTOK_INPUT
+# (USD per 1M input tokens; default 0.27 ≈ DeepSeek; set per provider —
+# e.g. 0.74 for Kimi K2.6). Output tokens aren't known until after the run, so
+# the tool's own reported (actual) cost is captured separately post-run.
 log_iteration() {
-  local iter=$1 endpoint=$2 est=$3
-  printf "%s\titer=%d\ttool=%s\tendpoint=%s\test_tokens=%d\n" \
-    "$(date +%Y-%m-%dT%H:%M:%S%z)" "$iter" "$TOOL" "$endpoint" "$est" >> "$COST_LOG"
+  local iter=$1 endpoint=$2 est=$3 model=$4
+  local rate="${RALPH_COST_PER_MTOK_INPUT:-0.27}"
+  local est_cost
+  est_cost=$(awk "BEGIN{printf \"%.4f\", ($est/1000000.0)*$rate}")
+  printf "%s\titer=%d\ttool=%s\tmodel=%s\tendpoint=%s\test_tokens=%d\test_cost_usd=%s\n" \
+    "$(date +%Y-%m-%dT%H:%M:%S%z)" "$iter" "$TOOL" "$model" "$endpoint" "$est" "$est_cost" >> "$COST_LOG"
 }
 
 # ---------------------------------------------------------------------------
@@ -283,8 +289,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   EST=$(estimate_input_tokens "$AGENT_PREFIX_FILE")
   ENDPOINT=$(pick_endpoint "$EST")
   apply_endpoint_env "$ENDPOINT"
-  log_iteration "$i" "$ENDPOINT" "$EST"
-  echo "  📡 Endpoint: $ENDPOINT  (est=$EST tok, threshold=$LOCAL_THRESHOLD)"
+  MODEL="${OPENCODE_MODEL:-${AIDER_MODEL:-$TOOL}}"
+  log_iteration "$i" "$ENDPOINT" "$EST" "$MODEL"
+  echo "  📡 Endpoint: $ENDPOINT  model=$MODEL  (est=$EST tok, threshold=$LOCAL_THRESHOLD)"
 
   # -------------------------------------------------------------------------
   # Build the combined prompt (agent prefix + base instruction file)
@@ -356,6 +363,13 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       ;;
 
   esac
+
+  # Best-effort: record the tool's own reported cost for this iteration. Output
+  # formats vary by tool (aider prints "Cost: $X"; others differ) — logged as NA
+  # when not parseable. Combine with est_cost_usd for a fuller spend picture.
+  ACTUAL_COST=$(grep -oiE 'cost[^0-9$]*\$?[0-9]+\.[0-9]+' "$TMPOUT" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | tail -1)
+  printf "%s\titer=%d\ttool=%s\tmodel=%s\tactual_cost_usd=%s\n" \
+    "$(date +%Y-%m-%dT%H:%M:%S%z)" "$i" "$TOOL" "${MODEL:-$TOOL}" "${ACTUAL_COST:-NA}" >> "$COST_LOG"
 
   # Capture output for completion detection
   OUTPUT=$(cat "$TMPOUT")

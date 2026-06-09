@@ -1,5 +1,6 @@
 # Ralph working files (generated during runs)
 .env.deepseek
+.env.deepseek-kimi
 prd.json
 progress.txt
 .last-branch
