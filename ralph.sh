@@ -261,6 +261,26 @@ write_agent_prefix() {
 }
 
 # ---------------------------------------------------------------------------
+# Optional completion hook — runs $RALPH_ON_COMPLETE once when the loop finishes
+# (any exit after it starts: all-complete, <promise>COMPLETE</promise>, or max
+# iterations). Opt-in; unset = no-op. The hook runs in a subshell and its exit
+# code never masks the loop's result. Examples:
+#   RALPH_ON_COMPLETE='git push'
+#   RALPH_ON_COMPLETE='pullscript . -p'
+# ---------------------------------------------------------------------------
+_on_complete() {
+  local code=$?
+  trap - EXIT                       # don't re-enter
+  if [ -n "${RALPH_ON_COMPLETE:-}" ]; then
+    echo ""
+    echo "🔔 RALPH_ON_COMPLETE (loop exit=$code): $RALPH_ON_COMPLETE"
+    ( eval "$RALPH_ON_COMPLETE" ) || echo "⚠️  RALPH_ON_COMPLETE returned non-zero (ignored)"
+  fi
+  exit "$code"
+}
+trap _on_complete EXIT
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 for i in $(seq 1 $MAX_ITERATIONS); do
