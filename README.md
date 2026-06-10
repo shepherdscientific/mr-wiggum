@@ -289,6 +289,21 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 
 ---
 
+## Run on completion
+
+Set `RALPH_ON_COMPLETE` to a command and Ralph runs it once when the loop
+finishes — whether it completed every story, emitted
+`<promise>COMPLETE</promise>`, or hit max iterations. It runs in a subshell and
+its exit code never masks the loop's result. Unset = no-op (opt-in).
+
+```bash
+export RALPH_ON_COMPLETE='pullscript . -p'   # or 'git push'
+./ralph.sh --tool opencode 10
+```
+
+Pair it with a server-side deploy webhook and a finished loop pushes itself,
+which triggers the rebuild + notification — fully hands-off.
+
 ## Key Files
 
 | File | Purpose |
@@ -308,15 +323,24 @@ SKIP_AIDER_REVIEW=1 ./ralph.sh --tool claude 10
 
 ### Cost tracking
 
-Each iteration appends a tab-separated line to `.ralph-cost.log` with the
-timestamp, iteration, tool, **model**, endpoint, estimated input tokens, and an
-**estimated input cost** (`est_cost_usd = est_tokens × RALPH_COST_PER_MTOK_INPUT`;
-USD per 1M input tokens, default `0.27` ≈ DeepSeek — set `0.74` for Kimi, etc.).
-A best-effort second line records the tool's own reported `actual_cost_usd`
-(or `NA` when the tool prints none). Tally estimated spend with:
+Each iteration appends tab-separated lines to `.ralph-cost.log`, tagged by
+**phase** so the coding run and the review gate can be tallied apart:
+
+- `phase=run` — the coding iteration: timestamp, iteration, tool, **model**
+  (read from `opencode.json` when no env override, so it's the real model — not
+  just the tool name), endpoint, estimated input tokens, and an **estimated
+  input cost** (`est_cost_usd = est_tokens × RALPH_COST_PER_MTOK_INPUT`; USD per
+  1M input tokens, default `0.27` ≈ DeepSeek — set `0.74` for Kimi, etc.). A
+  best-effort second `phase=run` line records the tool's own reported
+  `actual_cost_usd` (or `NA` when the tool prints none).
+- `phase=review` — the aider review gate: its model (`AIDER_REVIEW_MODEL`) and
+  reported `actual_cost_usd`. Worth watching when review runs a pricier model
+  (e.g. Kimi) than the coder (DeepSeek).
+
+Tally spend by phase and model:
 
 ```bash
-awk -F'\t' '{for(i=1;i<=NF;i++) if($i ~ /^est_cost_usd=/){split($i,a,"=");s+=a[2]}} END{printf "estimated spend: $%.2f\n", s}' .ralph-cost.log
+awk -F'\t' '{p="";m="";c="";for(i=1;i<=NF;i++){if($i~/^phase=/)p=substr($i,7);if($i~/^model=/)m=substr($i,7);if($i~/cost_usd=/){split($i,a,"=");c=a[2]}} if(c!=""&&c!="NA")s[p"\t"m]+=c} END{print "phase\tmodel\tUSD";for(k in s)printf "%s\t$%.4f\n",k,s[k]}' .ralph-cost.log
 ```
 
 ---
