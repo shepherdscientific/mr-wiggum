@@ -142,6 +142,14 @@ $REVIEW_DIFF" 2>&1 | tee "$REVIEW_OUTPUT"
 AIDER_EXIT=${PIPESTATUS[0]}
 set -e
 
+# Record the review's own cost as a separate phase so review spend can be
+# tallied apart from the coding run. Aider prints a "Cost: $X.XX ..." line;
+# logged as NA when not parseable. Same .ralph-cost.log next to this script.
+REVIEW_COST_LOG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.ralph-cost.log"
+REVIEW_COST=$(grep -oiE 'cost[^0-9$]*\$?[0-9]+\.[0-9]+' "$REVIEW_OUTPUT" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | tail -1)
+printf "%s\tphase=review\ttool=aider\tmodel=%s\tactual_cost_usd=%s\n" \
+  "$(date +%Y-%m-%dT%H:%M:%S%z)" "$REVIEW_MODEL" "${REVIEW_COST:-NA}" >> "$REVIEW_COST_LOG" 2>/dev/null || true
+
 if grep -q "RESULT: FAIL" "$REVIEW_OUTPUT"; then
   echo "❌ Aider review failed — fix critical issues before committing."
   exit 1

@@ -211,7 +211,7 @@ log_iteration() {
   local rate="${RALPH_COST_PER_MTOK_INPUT:-0.27}"
   local est_cost
   est_cost=$(awk "BEGIN{printf \"%.4f\", ($est/1000000.0)*$rate}")
-  printf "%s\titer=%d\ttool=%s\tmodel=%s\tendpoint=%s\test_tokens=%d\test_cost_usd=%s\n" \
+  printf "%s\tphase=run\titer=%d\ttool=%s\tmodel=%s\tendpoint=%s\test_tokens=%d\test_cost_usd=%s\n" \
     "$(date +%Y-%m-%dT%H:%M:%S%z)" "$iter" "$TOOL" "$model" "$endpoint" "$est" "$est_cost" >> "$COST_LOG"
 }
 
@@ -289,7 +289,18 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   EST=$(estimate_input_tokens "$AGENT_PREFIX_FILE")
   ENDPOINT=$(pick_endpoint "$EST")
   apply_endpoint_env "$ENDPOINT"
-  MODEL="${OPENCODE_MODEL:-${AIDER_MODEL:-$TOOL}}"
+  # Prefer an explicit env override; otherwise read the model from opencode.json
+  # (the config the loop actually uses) so the cost log shows the real model,
+  # not just the tool name.
+  MODEL="${OPENCODE_MODEL:-${AIDER_MODEL:-}}"
+  if [ -z "$MODEL" ]; then
+    for _oc in opencode.json "$SCRIPT_DIR/../../opencode.json"; do
+      if [ -f "$_oc" ] && command -v jq >/dev/null 2>&1; then
+        MODEL="$(jq -r '.model // empty' "$_oc" 2>/dev/null)"; [ -n "$MODEL" ] && break
+      fi
+    done
+  fi
+  MODEL="${MODEL:-$TOOL}"
   log_iteration "$i" "$ENDPOINT" "$EST" "$MODEL"
   echo "  📡 Endpoint: $ENDPOINT  model=$MODEL  (est=$EST tok, threshold=$LOCAL_THRESHOLD)"
 
@@ -368,7 +379,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # formats vary by tool (aider prints "Cost: $X"; others differ) — logged as NA
   # when not parseable. Combine with est_cost_usd for a fuller spend picture.
   ACTUAL_COST=$(grep -oiE 'cost[^0-9$]*\$?[0-9]+\.[0-9]+' "$TMPOUT" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | tail -1)
-  printf "%s\titer=%d\ttool=%s\tmodel=%s\tactual_cost_usd=%s\n" \
+  printf "%s\tphase=run\titer=%d\ttool=%s\tmodel=%s\tactual_cost_usd=%s\n" \
     "$(date +%Y-%m-%dT%H:%M:%S%z)" "$i" "$TOOL" "${MODEL:-$TOOL}" "${ACTUAL_COST:-NA}" >> "$COST_LOG"
 
   # Capture output for completion detection
