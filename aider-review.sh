@@ -24,6 +24,23 @@ set -euo pipefail
 #
 # ---------------------------------------------------------------------------
 
+# --- Load review env (model + keys) if not already in the environment --------
+# Lets the gate work even when invoked by a tool that sanitizes the environment,
+# or by a user who forgot to `source` their env file. Honors RALPH_REVIEW_ENV
+# first, then conventional repo-root locations. Anything already exported wins.
+if [ -z "${AIDER_REVIEW_MODEL:-}" ]; then
+  _ar_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _ar_root="$(git -C "$_ar_dir" rev-parse --show-toplevel 2>/dev/null || echo "$_ar_dir")"
+  for _ar_env in "${RALPH_REVIEW_ENV:-}" "$_ar_root/.env.deepseek-kimi" "$_ar_dir/.env.deepseek-kimi" "$_ar_root/.ralph-review.env"; do
+    if [ -n "$_ar_env" ] && [ -f "$_ar_env" ]; then
+      echo "🔑 aider-review: loading review env from $_ar_env"
+      # shellcheck disable=SC1090
+      set -a; . "$_ar_env"; set +a
+      break
+    fi
+  done
+fi
+
 # Skip entirely if requested
 if [ "${SKIP_AIDER_REVIEW:-0}" = "1" ]; then
   echo "⏭️  SKIP_AIDER_REVIEW=1 — skipping aider review step"
@@ -32,7 +49,8 @@ fi
 
 # Verify aider is installed
 if ! command -v aider &> /dev/null; then
-  echo "⚠️  Aider not found — skipping review."
+  echo -e "\033[33m⚠️  aider-review: 'aider' CLI not found on PATH — REVIEW SKIPPED (this is NOT a pass).\033[0m"
+  echo "   Install it so the review gate can run, e.g.:  pipx install aider-chat"
   exit 0
 fi
 
@@ -59,9 +77,9 @@ if [ "${USE_LOCAL:-0}" = "1" ]; then
   API_KEY="${AIDER_REVIEW_API_KEY:-${LLM_API_KEY:-dummy}}"
 
   if ! curl -sf --max-time 5 "$API_BASE/models" > /dev/null; then
-    echo -e "\033[33m⚠️  LLM server not responding at $API_BASE — skipping aider review\033[0m"
-    echo "   Set AIDER_REVIEW_MODEL=gemini/gemini-2.5-pro (or deepseek/deepseek-chat) to use an API instead"
-    echo "   Set SKIP_AIDER_REVIEW=1 to suppress this warning"
+    echo -e "\033[33m⚠️  aider-review: AIDER_REVIEW_MODEL not set and local LLM server not responding at $API_BASE — REVIEW SKIPPED (this is NOT a pass)\033[0m"
+    echo "   For Kimi via OpenRouter:  export AIDER_REVIEW_MODEL=openrouter/moonshotai/kimi-k2.6  (and OPENROUTER_API_KEY)"
+    echo "   Or point RALPH_REVIEW_ENV at an env file that exports them; SKIP_AIDER_REVIEW=1 to silence this gate"
     exit 0
   fi
 

@@ -53,7 +53,7 @@ python3 -c "import json; d=json.load(open('prd.json')); print('Duplicates found!
 ```
 
 ## 5. Aider Review (Mandatory Post-Implementation Gate)
-- Run `./scripts/ralph/aider_review.sh` **after** implementation, **before** updating prd.json.
+- Run `./scripts/ralph/aider-review.sh` **after** implementation, **before** updating prd.json.
 - Apply *all* critical fixes Aider suggests.
 - If Aider reports a reusable pattern (e.g., anti-pattern), add it here.
 - If Aider finds a blocker you cannot fix: document in this file and EXIT (no commit).

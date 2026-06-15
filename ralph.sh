@@ -128,6 +128,21 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Review-gate preflight (visibility): surface whether the aider/Kimi review can
+# actually run, so a misconfigured gate is obvious at startup instead of being
+# silently skipped every iteration.
+# ---------------------------------------------------------------------------
+if [ "${SKIP_AIDER_REVIEW:-0}" = "1" ]; then
+  echo "   Review gate: DISABLED (SKIP_AIDER_REVIEW=1)"
+elif [ ! -f "$SCRIPT_DIR/aider-review.sh" ]; then
+  echo "   Review gate: ⚠️  aider-review.sh not found next to ralph.sh — reviews will NOT run"
+elif ! command -v aider >/dev/null 2>&1; then
+  echo "   Review gate: ⚠️  'aider' CLI not on PATH — reviews will SKIP (e.g. pipx install aider-chat)"
+else
+  echo "   Review gate: aider present, model=${AIDER_REVIEW_MODEL:-<local fallback — set AIDER_REVIEW_MODEL>}"
+fi
+
+# ---------------------------------------------------------------------------
 # Helper: check prd.json for incomplete stories
 # ---------------------------------------------------------------------------
 prd_all_complete() {
@@ -266,7 +281,7 @@ write_agent_prefix() {
 # iterations). Opt-in; unset = no-op. The hook runs in a subshell and its exit
 # code never masks the loop's result. Examples:
 #   RALPH_ON_COMPLETE='git push'
-#   RALPH_ON_COMPLETE='pullscript . -p'
+#   RALPH_ON_COMPLETE='pullscript.sh . -p'
 # ---------------------------------------------------------------------------
 _on_complete() {
   local code=$?
@@ -424,6 +439,38 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "     The agent may have modified files but did not commit. Auto-committing..."
     git -C "$SCRIPT_DIR" add -A
     git -C "$SCRIPT_DIR" commit -m "chore(ralph): auto-commit uncommitted changes from iteration $i" || true
+  fi
+
+  # -------------------------------------------------------------------------
+  # Post-iteration code-review gate (loop-driven, not left to the agent).
+  # The loop runs the reviewer itself so the gate ALWAYS fires — cheaper coding
+  # models routinely skip it, so relying on the agent means it never runs.
+  # Reviews this iteration's commit/diff. Configure the reviewer via
+  # AIDER_REVIEW_MODEL + its key, e.g.
+  #   openrouter/moonshotai/kimi-k2.6   +   OPENROUTER_API_KEY
+  #
+  #   SKIP_AIDER_REVIEW=1     disable the gate entirely
+  #   RALPH_REVIEW_ENV=path   env file to source for the review model/keys
+  #   RALPH_REQUIRE_REVIEW=1  stop the loop when the review returns RESULT: FAIL
+  # -------------------------------------------------------------------------
+  if [ "${SKIP_AIDER_REVIEW:-0}" != "1" ] && [ -f "$SCRIPT_DIR/aider-review.sh" ]; then
+    if [ -n "${RALPH_REVIEW_ENV:-}" ] && [ -f "$RALPH_REVIEW_ENV" ]; then
+      # shellcheck disable=SC1090
+      { set -a; source "$RALPH_REVIEW_ENV"; set +a; }
+    fi
+    REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR")
+    echo ""
+    echo "  🔍 Post-iteration review (model=${AIDER_REVIEW_MODEL:-<local fallback>})"
+    if ( cd "$REPO_ROOT" && bash "$SCRIPT_DIR/aider-review.sh" ); then
+      echo "  ✅ Review gate clear for iteration $i."
+    else
+      echo "  ❌ Review gate reported issues on iteration $i (RESULT: FAIL)."
+      if [ "${RALPH_REQUIRE_REVIEW:-0}" = "1" ]; then
+        echo "  ⛔ RALPH_REQUIRE_REVIEW=1 — stopping so you can address the findings."
+        exit 1
+      fi
+      echo "     Continuing (set RALPH_REQUIRE_REVIEW=1 to make this a hard stop)."
+    fi
   fi
 
   # -------------------------------------------------------------------------
