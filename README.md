@@ -235,7 +235,7 @@ or in a gitignored `.env` you `source`. See `.env.example` and
 | *(arg)* iterations | `10` | Max iterations, e.g. `ralph.sh --tool opencode 7`. |
 | `OPENCODE_MODEL` | from `opencode.json` | Model name recorded in the cost log (falls back to `opencode.json`'s `model`). |
 | `RALPH_COST_PER_MTOK_INPUT` | `0.27` | USD per 1M **input** tokens for `est_cost_usd` (DeepSeek ≈ 0.27, Kimi ≈ 0.74). |
-| `RALPH_ON_COMPLETE` | *(unset)* | Command run once when the loop finishes — e.g. `'pullscript . -p'` or `'git push'`. |
+| `RALPH_ON_COMPLETE` | *(unset)* | Command run once when the loop finishes — e.g. `'pullscript.sh . -p'` or `'git push'`. |
 | `SKIP_AIDER_REVIEW` | `0` | `1` skips the review gate for the run. |
 
 ### Local↔remote failover
@@ -272,14 +272,14 @@ finishes — whether it completed every story, emitted
 its exit code never masks the loop's result. Unset = no-op (opt-in).
 
 ```bash
-export RALPH_ON_COMPLETE='pullscript . -p'   # or 'git push'
+export RALPH_ON_COMPLETE='pullscript.sh . -p'   # or 'git push'
 ./scripts/ralph/ralph.sh --tool opencode 10
 ```
 
 **Multi-repo workflow.** When you run the loop across several repos that finish
 at different times, [`pullscript`](https://github.com/shepherdscientific/pullscript)
 (recursively pushes/pulls every git repo under a path) is a clean fit for the
-hook — `RALPH_ON_COMPLETE='pullscript . -p'`. Each finished loop pushes itself;
+hook — `RALPH_ON_COMPLETE='pullscript.sh . -p'`. Each finished loop pushes itself;
 pair that with a server-side deploy webhook and the push triggers the rebuild and
 notification — fully hands-off.
 
