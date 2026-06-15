@@ -231,6 +231,37 @@ log_iteration() {
 }
 
 # ---------------------------------------------------------------------------
+# Per-iteration Slack notification. Non-blocking and best-effort:
+#   * Reads SLACK_WEBHOOK_URL from the environment (or whatever the endpoint /
+#     review env files exported via `set -a; source`). NEVER hardcoded.
+#   * If SLACK_WEBHOOK_URL is unset/empty, or curl is missing, returns silently.
+#   * curl is bounded (-m 10) and errors are swallowed (|| true) so a Slack
+#     hiccup can never break or stall the loop.
+# $1 — iteration number   $2 — story id   $3 — review result   $4 — summary line
+# ---------------------------------------------------------------------------
+slack_notify() {
+  local iter="$1" story="$2" result="$3" summary="$4"
+  [ -z "${SLACK_WEBHOOK_URL:-}" ] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local emoji
+  case "$result" in
+    pass) emoji="✅" ;;
+    fail) emoji="❌" ;;
+    *)    emoji="➖" ;;
+  esac
+
+  # Collapse newlines/tabs to spaces, then escape backslash + double-quote so
+  # the value embeds safely inside the JSON string below.
+  local safe_summary
+  safe_summary=$(printf '%s' "$summary" | tr '\n\t' '  ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  local text="${emoji} Ralph iter ${iter} — ${story} — review: ${result} — ${safe_summary}"
+
+  curl -sf -m 10 -X POST -H 'Content-Type: application/json' \
+    --data "{\"text\":\"${text}\"}" "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
 # Helper: write agent persona prefix for the next incomplete story to a file.
 #
 # Resolution order: story.agents → prd.agents → empty (no persona, no change)
@@ -310,6 +341,11 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo "✅ All PRD stories already complete — skipping iteration $i"
     exit 0
   fi
+
+  # Capture the story this iteration will work BEFORE the agent runs (after it
+  # runs the story may flip to passes:true and "first incomplete" would shift).
+  # Used only for the per-iteration Slack notification below.
+  STORY_ID=$(jq -r '[ .userStories[] | select(.passes != true) ][0].id // "unknown"' "$PRD_FILE" 2>/dev/null || echo "unknown")
 
   # -------------------------------------------------------------------------
   # Resolve agent personas for this iteration's story
@@ -453,6 +489,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   #   RALPH_REVIEW_ENV=path   env file to source for the review model/keys
   #   RALPH_REQUIRE_REVIEW=1  stop the loop when the review returns RESULT: FAIL
   # -------------------------------------------------------------------------
+  REVIEW_RESULT="skipped"
   if [ "${SKIP_AIDER_REVIEW:-0}" != "1" ] && [ -f "$SCRIPT_DIR/aider-review.sh" ]; then
     if [ -n "${RALPH_REVIEW_ENV:-}" ] && [ -f "$RALPH_REVIEW_ENV" ]; then
       # shellcheck disable=SC1090
@@ -462,15 +499,30 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     echo ""
     echo "  🔍 Post-iteration review (model=${AIDER_REVIEW_MODEL:-<local fallback>})"
     if ( cd "$REPO_ROOT" && bash "$SCRIPT_DIR/aider-review.sh" ); then
+      REVIEW_RESULT="pass"
       echo "  ✅ Review gate clear for iteration $i."
     else
+      REVIEW_RESULT="fail"
       echo "  ❌ Review gate reported issues on iteration $i (RESULT: FAIL)."
-      if [ "${RALPH_REQUIRE_REVIEW:-0}" = "1" ]; then
-        echo "  ⛔ RALPH_REQUIRE_REVIEW=1 — stopping so you can address the findings."
-        exit 1
-      fi
-      echo "     Continuing (set RALPH_REQUIRE_REVIEW=1 to make this a hard stop)."
     fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # Per-iteration Slack notification (non-blocking). Posts the story id, the
+  # review-gate result, and a one-line change summary (this iteration's latest
+  # commit subject). Done BEFORE the RALPH_REQUIRE_REVIEW hard stop below so a
+  # failing iteration still notifies before the loop exits.
+  # -------------------------------------------------------------------------
+  ITER_SUMMARY=$(git -C "$SCRIPT_DIR" log -1 --format='%s' 2>/dev/null || echo "no commit")
+  slack_notify "$i" "${STORY_ID:-unknown}" "$REVIEW_RESULT" "$ITER_SUMMARY"
+
+  # Hard stop on a failing review, if requested (Slack already posted above).
+  if [ "$REVIEW_RESULT" = "fail" ]; then
+    if [ "${RALPH_REQUIRE_REVIEW:-0}" = "1" ]; then
+      echo "  ⛔ RALPH_REQUIRE_REVIEW=1 — stopping so you can address the findings."
+      exit 1
+    fi
+    echo "     Continuing (set RALPH_REQUIRE_REVIEW=1 to make this a hard stop)."
   fi
 
   # -------------------------------------------------------------------------
