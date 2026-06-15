@@ -42,6 +42,14 @@ RALPH_LOCAL_LLAMA_URL="${RALPH_LOCAL_LLAMA_URL:-http://localhost:8080/health}"
 # Max seconds for a single agent call. Guards against a stalled model API
 # (idle-but-open HTTPS connection) hanging the whole loop forever. 0 = unbounded.
 RALPH_AGENT_TIMEOUT="${RALPH_AGENT_TIMEOUT:-900}"
+# Connectivity gate (run before each agent call). The loop talks to a remote
+# model API, so a network cut would otherwise burn the full agent timeout every
+# iteration. Probe URL + poll interval (seconds). NET_GATE_DIR is a per-user
+# marker dir shared across concurrent loops so the ⏸/▶ Slack notices dedupe.
+RALPH_NET_CHECK_URL="${RALPH_NET_CHECK_URL:-https://api.deepseek.com}"
+RALPH_NET_POLL="${RALPH_NET_POLL:-15}"
+NET_GATE_DIR="${RALPH_NET_GATE_DIR:-/tmp/ralph-net-gate-$(id -u 2>/dev/null)}"
+mkdir -p "$NET_GATE_DIR" 2>/dev/null || true
 LOCAL_THRESHOLD=$(( RALPH_LOCAL_CONTEXT_MAX * RALPH_LOCAL_CONTEXT_PCT / 100 ))
 
 # Resolve a `timeout` binary to bound each agent call so a stalled model API
@@ -280,6 +288,64 @@ slack_notify() {
     --data "{\"text\":\"${text}\"}" "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 || true
 }
 
+# Post a raw text line to Slack (best-effort, non-blocking) — shares the guard
+# and curl flags with slack_notify. Used for the connectivity ⏸/▶ notices.
+slack_send_text() {
+  local text="$1"
+  [ -z "${SLACK_WEBHOOK_URL:-}" ] && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  local safe
+  safe=$(printf '%s' "$text" | tr '\n\t' '  ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  curl -sf -m 10 -X POST -H 'Content-Type: application/json' \
+    --data "{\"text\":\"${safe}\"}" "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 || true
+}
+
+# Cheap reachability probe to the model provider. Exit 0 = the host answered
+# (ANY HTTP response, even 4xx — we only care that the network/TLS path is up,
+# NOT that we're authenticated, so deliberately NO -f). Non-zero = DNS/connect/
+# timeout = treat as down.
+network_reachable() {
+  curl -s -o /dev/null --max-time 5 "$RALPH_NET_CHECK_URL" >/dev/null 2>&1
+}
+
+# Connectivity GATE — call before each agent run. Reachable → return at once.
+# Down → pause and re-check every RALPH_NET_POLL seconds until it returns, then
+# resume. Waits out an outage of ANY length (no artificial cap). A drop that
+# happens DURING an agent call is still caught by the RALPH_AGENT_TIMEOUT
+# backstop; this gate then waits before the next attempt.
+#
+# Multi-loop safe: the probe is read-only (no shared lock — each loop gates
+# independently). The ⏸/▶ Slack notices are deduped across concurrent loops via
+# atomic mkdir/rmdir on a shared marker ($NET_GATE_DIR/outage) so N loops emit
+# ONE ⏸ and ONE ▶ per outage window. The dedupe NEVER blocks a loop: mkdir/rmdir
+# are instant and their failure just means another loop already posted.
+wait_for_network() {
+  if network_reachable; then
+    # Fast path. Clear a stale marker (e.g. the loop that posted ⏸ exited
+    # before recovery) and post the resume once, so the next outage isn't muted.
+    if rmdir "$NET_GATE_DIR/outage" 2>/dev/null; then
+      slack_send_text "▶ back online — resuming ralph ($(hostname -s 2>/dev/null) $(date '+%H:%M:%S'))"
+    fi
+    return 0
+  fi
+
+  # Down: first loop to claim the marker posts the pause notice.
+  if mkdir "$NET_GATE_DIR/outage" 2>/dev/null; then
+    slack_send_text "⏸ network down — pausing ralph ($(hostname -s 2>/dev/null) $(date '+%H:%M:%S'))"
+  fi
+  echo "  ⏸  Network unreachable (${RALPH_NET_CHECK_URL}) — pausing; re-checking every ${RALPH_NET_POLL}s..." >&2
+
+  until network_reachable; do
+    sleep "$RALPH_NET_POLL"
+  done
+
+  echo "  ▶  Network back — resuming." >&2
+  # First loop to clear the marker posts the resume notice.
+  if rmdir "$NET_GATE_DIR/outage" 2>/dev/null; then
+    slack_send_text "▶ back online — resuming ralph ($(hostname -s 2>/dev/null) $(date '+%H:%M:%S'))"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Helper: write agent persona prefix for the next incomplete story to a file.
 #
@@ -409,6 +475,14 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # -------------------------------------------------------------------------
   STREAM_LIVE=false
   [ -w /dev/tty ] && STREAM_LIVE=true
+
+  # -------------------------------------------------------------------------
+  # Connectivity gate: pause HERE (at an iteration boundary, not mid-call) if
+  # the model API is unreachable, and resume the instant it returns. A drop
+  # that happens during the agent call is caught by RALPH_AGENT_TIMEOUT, and
+  # the next iteration gates here again.
+  # -------------------------------------------------------------------------
+  wait_for_network
 
   # -------------------------------------------------------------------------
   # Run the AI tool
