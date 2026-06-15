@@ -39,7 +39,26 @@ RALPH_LOCAL_CONTEXT_MAX="${RALPH_LOCAL_CONTEXT_MAX:-131072}"
 RALPH_LOCAL_CONTEXT_PCT="${RALPH_LOCAL_CONTEXT_PCT:-80}"
 RALPH_AGENT_READ_BUDGET="${RALPH_AGENT_READ_BUDGET:-30000}"
 RALPH_LOCAL_LLAMA_URL="${RALPH_LOCAL_LLAMA_URL:-http://localhost:8080/health}"
+# Max seconds for a single agent call. Guards against a stalled model API
+# (idle-but-open HTTPS connection) hanging the whole loop forever. 0 = unbounded.
+RALPH_AGENT_TIMEOUT="${RALPH_AGENT_TIMEOUT:-900}"
 LOCAL_THRESHOLD=$(( RALPH_LOCAL_CONTEXT_MAX * RALPH_LOCAL_CONTEXT_PCT / 100 ))
+
+# Resolve a `timeout` binary to bound each agent call so a stalled model API
+# ends the iteration (the existing `|| true` swallows timeout's exit 124)
+# instead of hanging the loop. macOS ships neither `timeout` nor `gtimeout` by
+# default — if absent (and not disabled via RALPH_AGENT_TIMEOUT=0) the agent
+# runs UNBOUNDED and we warn once. -k 30 hard-kills if SIGTERM is ignored.
+AGENT_TIMEOUT_CMD=""
+if [ "${RALPH_AGENT_TIMEOUT}" != "0" ]; then
+  if command -v timeout >/dev/null 2>&1; then
+    AGENT_TIMEOUT_CMD="timeout -k 30 ${RALPH_AGENT_TIMEOUT}"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    AGENT_TIMEOUT_CMD="gtimeout -k 30 ${RALPH_AGENT_TIMEOUT}"
+  else
+    echo "  ⚠️  RALPH_AGENT_TIMEOUT=${RALPH_AGENT_TIMEOUT}s set but no 'timeout'/'gtimeout' on PATH — agent runs UNBOUNDED (brew install coreutils). Set RALPH_AGENT_TIMEOUT=0 to silence." >&2
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Locate agency-agents directory
@@ -399,9 +418,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     "amp")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/prompt.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        cat "$TMPPROMPT" | amp --dangerously-allow-all 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        cat "$TMPPROMPT" | $AGENT_TIMEOUT_CMD amp --dangerously-allow-all 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        cat "$TMPPROMPT" | amp --dangerously-allow-all > "$TMPOUT" 2>&1 || true
+        cat "$TMPPROMPT" | $AGENT_TIMEOUT_CMD amp --dangerously-allow-all > "$TMPOUT" 2>&1 || true
       fi
       ;;
 
@@ -410,27 +429,27 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       # stdin. Newer versions misparse stdin as structured tool input (ZodError).
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/CLAUDE.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        $AGENT_TIMEOUT_CMD claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        $AGENT_TIMEOUT_CMD claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
       fi
       ;;
 
     "opencode")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/OPENCODE.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        opencode run "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        $AGENT_TIMEOUT_CMD opencode run "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        opencode run "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        $AGENT_TIMEOUT_CMD opencode run "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
       fi
       ;;
 
     "gemini")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/GEMINI.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        gemini -p "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        $AGENT_TIMEOUT_CMD gemini -p "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        gemini -p "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        $AGENT_TIMEOUT_CMD gemini -p "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
       fi
       ;;
 
@@ -438,9 +457,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       # aider reads instructions from a file; prepend agent content inline
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/AIDER_CODEX.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        $AGENT_TIMEOUT_CMD aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit 2>&1 | tee /dev/tty > "$TMPOUT" || true
       else
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit > "$TMPOUT" 2>&1 || true
+        $AGENT_TIMEOUT_CMD aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit > "$TMPOUT" 2>&1 || true
       fi
       ;;
 
