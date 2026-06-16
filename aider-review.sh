@@ -146,7 +146,7 @@ trap "rm -f $REVIEW_OUTPUT" EXIT
 set +e
 aider \
   --model "$REVIEW_MODEL" \
-  "${AIDER_EXTRA_ARGS[@]}" \
+  ${AIDER_EXTRA_ARGS[@]+"${AIDER_EXTRA_ARGS[@]}"} \
   --yes \
   --no-auto-commit \
   --message "You are a senior code reviewer. Review ONLY the diff below — do NOT ask for more files or additional context; everything you need is included.
