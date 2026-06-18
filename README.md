@@ -14,6 +14,13 @@ on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 > backends are wired in but only lightly exercised, so treat them as
 > experimental. Examples below lead with OpenCode.
 
+> **Canonical source.** This repo is the **canonical Ralph harness** for these
+> projects — the fully-instrumented loop (`ralph.sh`, `aider-review.sh`,
+> `metrics-lib.sh`, `metrics-report.sh`) lives here and **new repos copy the
+> harness from here**. Drop the scripts at a repo root (as in this repo) or into a
+> `scripts/ralph/` subdirectory — they resolve the repo root either way. See
+> [Using this as the canonical template](#using-this-as-the-canonical-template).
+
 **What this fork adds on top of Ralph:**
 
 - **OpenCode-first, multi-harness** — one loop, selectable backend (`--tool`),
@@ -22,14 +29,24 @@ on [Geoffrey Huntley's Ralph pattern](https://ghuntley.com/ralph/).
 - **Local↔remote failover** — estimates each iteration's input size and routes
   to a local llama-server when it fits, a remote API when it doesn't (or when
   the local server is down). Fully env-configurable.
-- **Aider review gate** — after each implementation, [aider](https://aider.chat)
+- **Aider review gate (hardened)** — after each implementation, [aider](https://aider.chat)
   reviews the diff before committing, using a model you choose **independently**
   of the loop's model (a real second opinion). Never commits code that fails
-  review; never reports a false pass on a provider error.
+  review; never reports a false pass on a provider error; and now **REVIEW-FAILs
+  any iteration with no substantive code change** — an empty/no-op diff or a
+  bookkeeping-only commit can no longer be rubber-stamped into a false pass.
+- **Loop-owned story completion** — the *loop*, not the agent, flips `passes:true`
+  in the root `prd.json`, appends `progress.txt`, and commits `feat(<STORY_ID>)`
+  on a review PASS. Idempotent and opt-out (`RALPH_NO_AUTO_PASS=1`), so a cheap
+  model that writes code but skips its own bookkeeping no longer re-works the same
+  first-incomplete story forever.
 - **Agent persona injection** — assign specialist personas to a story or the
   whole PRD; they're prepended to the prompt per iteration.
-- **Cost logging** — per-iteration spend log, tagged `phase=run` / `phase=review`
-  with the real model and an estimated/actual cost.
+- **Real per-call metrics + energy cost** — every codegen/review call logs one
+  self-tagged JSON record to `.ralph-metrics.jsonl` (tokens, cost, duration,
+  verdict); `metrics-report.sh` aggregates iter/hr, review-rejection %, and the
+  **true cost per story** including local **energy** (measured watts → kWh → ₦,
+  all configurable). The legacy estimate log (`.ralph-cost.log`) still works.
 - **Completion hook** — run any command when the loop finishes (e.g. auto-push).
 - **PATCH-not-REWRITE guards** — prompts instruct surgical edits, not whole-file
   rewrites, avoiding silent regressions and wasted tokens.
@@ -200,6 +217,24 @@ diff** in the prompt (so the model can't ask for it) and reports success only on
 an explicit `RESULT: PASS`; a provider/model error produces a clear "did NOT
 run" warning — **never a false pass**.
 
+**Substantive-diff hardening.** Before the reviewer model runs, the gate checks
+that the iteration actually changed CODE. It looks at this iteration's work —
+commits since `RALPH_BASE_SHA` (the HEAD `ralph.sh` captured *before* the agent
+ran) plus the working tree — and **REVIEW-FAILs** when nothing substantive
+changed: an empty/no-op diff, or a commit that touches only bookkeeping files
+(`prd.json`, `progress.txt`, `.ralph-metrics.jsonl`, `.ralph-cost.log`,
+`.last-branch`) such as the harness's own "mark `passes:true`" commit. This is
+the exact bug that let an errored codegen run get rubber-stamped to a false
+13/13. It runs *before* the reviewer-availability checks (which exit `0` = skip,
+read by the loop as a pass), so it fails hard even when no reviewer is
+configured. Opt out for a genuine no-code story with `RALPH_ALLOW_EMPTY_DIFF=1`.
+
+**Loop-owned completion.** On a review PASS the *loop* does the bookkeeping for
+the story it set out to work this iteration — flips `passes:true` in the root
+`prd.json`, appends `progress.txt`, and commits `feat(<STORY_ID>)`. It's
+idempotent (a clean no-op when the agent already self-completed) and disabled
+with `RALPH_NO_AUTO_PASS=1`.
+
 **Provider auto-detection** (from the `AIDER_REVIEW_MODEL` prefix):
 
 - `gemini/*` — uses `GEMINI_API_KEY`, no base URL (native litellm).
@@ -261,6 +296,23 @@ or in a gitignored `.env` you `source`. See `.env.example` and
 | `LLM_API_BASE` | `http://localhost:8080/v1` | Local server base (used when `AIDER_REVIEW_MODEL` is unset). |
 | `LLM_API_KEY` | `dummy` | Local server key. |
 | `GEMINI_API_KEY` / `OPENROUTER_API_KEY` | — | Picked up automatically for `gemini/*` / `openrouter/*` reviewers. |
+| `RALPH_ALLOW_EMPTY_DIFF` | `0` | `1` lets the gate pass an iteration with no code change (a genuine no-code / docs-only story). |
+
+### Completion & bookkeeping
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RALPH_NO_AUTO_PASS` | `0` | `1` disables loop-owned completion — the agent itself must flip `passes:true` and commit `feat(<id>)`. |
+
+### Metrics & energy
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RALPH_POWER_SAMPLE` | `0` | `1` measures real SoC watts per **local** iteration via macOS `powermetrics` (needs passwordless sudo); else the ceiling below. |
+| `RALPH_POWER_KW` | `0.09` | Fallback local power draw (kW) when not measured — the 90 W ceiling. |
+| `RALPH_TARIFF_NGN_PER_KWH` | `345` | Electricity tariff (₦/kWh) for local energy cost (Nigeria Band A). |
+| `RALPH_NGN_PER_USD` | `1400` | FX rate for the USD comparison column (₦ is ground truth). |
+| `RALPH_COST_PER_MTOK_OUTPUT` | input rate | USD per 1M **output** tokens — compute cloud cost from real tokens when a tool prints none. |
 
 ---
 
@@ -306,6 +358,30 @@ Tally spend by phase and model:
 awk -F'\t' '{p="";m="";c="";for(i=1;i<=NF;i++){if($i~/^phase=/)p=substr($i,7);if($i~/^model=/)m=substr($i,7);if($i~/cost_usd=/){split($i,a,"=");c=a[2]}} if(c!=""&&c!="NA")s[p"\t"m]+=c} END{print "phase\tmodel\tUSD";for(k in s)printf "%s\t$%.4f\n",k,s[k]}' .ralph-cost.log
 ```
 
+### Real per-call metrics (`.ralph-metrics.jsonl`)
+
+For ground-truth numbers the loop also writes **one self-tagged JSON record per
+API call** (codegen and review) to `.ralph-metrics.jsonl` via `metrics-lib.sh`:
+real tokens, real cost (or an honest `null` when a provider reports none — never
+a fabricated estimate), duration, endpoint (`local`/`cloud`), review `verdict`,
+and measured `avg_watts` for local iterations. Appends are atomic and
+concurrency-safe, and every row is tagged with repo + model + role, so parallel
+loops can even share a file without the rows blurring.
+
+`metrics-report.sh` aggregates them — per repo × codegen-model × reviewer:
+
+```bash
+./metrics-report.sh                  # this repo's .ralph-metrics.jsonl
+./metrics-report.sh ~/code/projects  # every loop under a dir (root- or scripts/ralph-layout)
+```
+
+It reports **iter/hr**, review **rejection %**, and the **true cost per story** —
+which for a local run is **not $0**: it includes the Mac's **energy** (measured
+watts → kWh → ₦ at your Band-A tariff) plus the cloud review-API spend. Tune
+`RALPH_POWER_KW`, `RALPH_TARIFF_NGN_PER_KWH`, `RALPH_NGN_PER_USD` (see
+[Metrics & energy](#metrics--energy)); set `RALPH_POWER_SAMPLE=1` to measure real
+watts instead of the 90 W ceiling.
+
 ---
 
 ## Key Files
@@ -320,7 +396,40 @@ awk -F'\t' '{p="";m="";c="";for(i=1;i<=NF;i++){if($i~/^phase=/)p=substr($i,7);if
 | `prd.json.example` | Example PRD (includes `agents` fields). |
 | `agency-agents/` | 27 specialist persona files. |
 | `.env.example` / `.env.deepseek-kimi.example` | Config templates (failover knobs / DeepSeek+Kimi setup). |
-| `.ralph-cost.log` | Per-iteration spend log (see Cost tracking). |
+| `metrics-lib.sh` | Emits one **real** per-call JSON metric to `.ralph-metrics.jsonl`; sourced by the loop + review gate (no-op stubs if absent). |
+| `metrics-report.sh` | Aggregates `.ralph-metrics.jsonl` → iter/hr, rejection %, true ₦/$ per story incl. energy. |
+| `test-harness-bookkeeping.sh` / `test-metrics.sh` / `test-review-gate.sh` | Self-contained tests for loop-owned completion, metrics, and the review-gate hardening. |
+| `.ralph-cost.log` | Legacy per-iteration estimate log (superseded by `.ralph-metrics.jsonl`; gitignored). |
+| `.ralph-metrics.jsonl` | Real per-call metrics — one JSON record per codegen/review call (gitignored). |
+
+---
+
+## Using this as the canonical template
+
+This repo is the **canonical Ralph harness** — the source of truth. New projects
+copy the harness from here; the scripts resolve the repo root themselves, so they
+work whether they sit at the repo root (as here) or in a `scripts/ralph/` subdir:
+
+```bash
+# from the new repo's root
+mkdir -p scripts/ralph
+cp ~/tools/mr-wiggum/{ralph.sh,aider-review.sh,metrics-lib.sh,metrics-report.sh} scripts/ralph/
+cp ~/tools/mr-wiggum/{OPENCODE.md,CLAUDE.md,AGENTS.md,prompt.md} scripts/ralph/   # the prompts you use
+cp ~/tools/mr-wiggum/prd.json.example prd.json                                    # then edit your stories
+# add to .gitignore:  .ralph-metrics.jsonl  .ralph-cost.log  and your real .env* files
+./scripts/ralph/ralph.sh --tool opencode 10
+```
+
+`PRD_FILE`, the progress log, and the metrics file all resolve from
+`git rev-parse --show-toplevel`, so `prd.json` is always read from and written to
+the **real repo root**. Everything degrades to a safe no-op if a piece is missing
+(no `metrics-lib.sh` → the loop runs exactly as before; no reviewer configured →
+the review gate's empty-diff guard still fails a no-op iteration).
+
+When you improve the harness, **change it here first**, then re-copy into the
+target repos — don't fork per-project. The bundled tests
+(`test-harness-bookkeeping.sh`, `test-metrics.sh`, `test-review-gate.sh`) guard
+the loop-owned completion, the metrics, and the review-gate hardening.
 
 ---
 

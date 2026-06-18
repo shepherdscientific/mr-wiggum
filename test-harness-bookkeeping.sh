@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Test for the harness-owned story-completion logic added to ralph.sh.
+#
+# It exercises a faithful copy of the post-review-gate block (jq passes:true
+# flip + feat(<id>) commit + progress append) and asserts:
+#   1. a FAIL review marks nothing and commits nothing
+#   2. a PASS on the open target flips passes:true, writes ONE feat(<id>) commit
+#      and a progress line
+#   3. re-running PASS on the now-complete story is idempotent (NO 2nd commit)
+#   4. a story already passes:true (agent self-completed) is a clean no-op
+#   5. the next open story advances independently
+#   6. the block is safe under `set -e` (the shell ralph.sh runs with)
+#
+# Run:  bash scripts/ralph/test-harness-bookkeeping.sh     (exit 0 = all green)
+# ---------------------------------------------------------------------------
+set -uo pipefail
+
+PASS=0; FAIL=0
+ok(){ echo "  PASS  $1"; PASS=$((PASS+1)); }
+no(){ echo "  FAIL  $1"; FAIL=$((FAIL+1)); }
+
+# --- function under test: a faithful copy of the ralph.sh bookkeeping block --
+# Args: REVIEW_RESULT STORY_ID PRD_FILE REPO_ROOT [iteration]
+harness_complete_story() {
+  local REVIEW_RESULT="$1" STORY_ID="$2" PRD_FILE="$3" REPO_ROOT="$4" i="${5:-1}"
+  if [ "$REVIEW_RESULT" = "pass" ] && [ -n "${STORY_ID:-}" ] && [ "$STORY_ID" != "unknown" ] && [ -f "$PRD_FILE" ]; then
+    local STORY_STILL_OPEN STORY_TITLE _PRD_TMP
+    STORY_STILL_OPEN=$(jq -r --arg id "$STORY_ID" \
+      'if any(.userStories[]?; .id == $id and (.passes != true)) then "yes" else "no" end' \
+      "$PRD_FILE" 2>/dev/null || echo "no")
+    if [ "$STORY_STILL_OPEN" = "yes" ]; then
+      STORY_TITLE=$(jq -r --arg id "$STORY_ID" \
+        'first(.userStories[]? | select(.id == $id) | .title) // ""' "$PRD_FILE" 2>/dev/null || echo "")
+      _PRD_TMP=$(mktemp)
+      if jq --arg id "$STORY_ID" \
+           '(.userStories[]? | select(.id == $id) | .passes) = true' \
+           "$PRD_FILE" > "$_PRD_TMP" 2>/dev/null && [ -s "$_PRD_TMP" ]; then
+        mv "$_PRD_TMP" "$PRD_FILE" 2>/dev/null || rm -f "$_PRD_TMP"
+      else
+        rm -f "$_PRD_TMP"
+      fi
+      printf '%s — %s — %s — completed by harness (review PASS, iteration %s)\n' \
+        "$(date +%Y-%m-%dT%H:%M:%S%z)" "$STORY_ID" "${STORY_TITLE:-untitled}" "$i" \
+        >> "$REPO_ROOT/progress.txt" 2>/dev/null || true
+      git -C "$REPO_ROOT" add -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null || true
+      if ! git -C "$REPO_ROOT" diff --cached --quiet -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null; then
+        git -C "$REPO_ROOT" commit -m "feat($STORY_ID): ${STORY_TITLE:-complete story} [harness: loop-owned completion on review PASS]" >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
+}
+
+# --- fixture: throwaway git repo with a 4-story PRD --------------------------
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+git -C "$TMP" init -q
+git -C "$TMP" config user.email t@t.t; git -C "$TMP" config user.name tester
+cat > "$TMP/prd.json" <<'JSON'
+{ "branchName": "ralph/mvp", "userStories": [
+  { "id": "US-1", "title": "First story",  "passes": false },
+  { "id": "US-2", "title": "Second story", "passes": false },
+  { "id": "US-3", "title": "Third story",  "passes": true  },
+  { "id": "US-4", "title": "Fourth story", "passes": false }
+] }
+JSON
+: > "$TMP/progress.txt"
+git -C "$TMP" add -A; git -C "$TMP" commit -qm init
+base=$(git -C "$TMP" rev-list --count HEAD)
+
+passes_of(){ jq -r --arg id "$1" 'first(.userStories[]|select(.id==$id)|.passes)' "$TMP/prd.json"; }
+commits(){ git -C "$TMP" rev-list --count HEAD; }
+subject(){ git -C "$TMP" log -1 --format='%s'; }
+
+echo "1) FAIL review must mark nothing and commit nothing"
+harness_complete_story fail US-1 "$TMP/prd.json" "$TMP" 1
+[ "$(passes_of US-1)" = "false" ] && ok "FAIL left US-1 passes:false" || no "FAIL wrongly marked US-1"
+[ "$(commits)" = "$base" ]        && ok "FAIL made no commit"        || no "FAIL created a commit"
+
+echo "2) PASS on the open target flips passes:true + one feat(US-1) commit + progress"
+harness_complete_story pass US-1 "$TMP/prd.json" "$TMP" 2
+[ "$(passes_of US-1)" = "true" ]      && ok "PASS flipped US-1 -> true"          || no "PASS did not flip US-1"
+[ "$(commits)" = "$((base+1))" ]      && ok "PASS made exactly one commit"       || no "wrong commit count: $(commits)"
+case "$(subject)" in feat\(US-1\):*)  ok "commit subject is feat(US-1): ..." ;;  *) no "bad subject: $(subject)";; esac
+grep -q "US-1" "$TMP/progress.txt"    && ok "progress.txt got a US-1 line"        || no "progress.txt missing US-1"
+
+echo "3) Idempotent: re-running PASS on the now-complete US-1 makes NO new commit"
+before=$(commits)
+harness_complete_story pass US-1 "$TMP/prd.json" "$TMP" 3
+[ "$(commits)" = "$before" ] && ok "idempotent re-run did not double-commit" || no "idempotent re-run double-committed"
+
+echo "4) A story already passes:true (agent self-completed) is a clean no-op"
+before=$(commits)
+harness_complete_story pass US-3 "$TMP/prd.json" "$TMP" 4
+[ "$(commits)" = "$before" ] && ok "already-passing US-3 is a no-op" || no "US-3 wrongly committed"
+
+echo "5) The next open story advances independently"
+harness_complete_story pass US-2 "$TMP/prd.json" "$TMP" 5
+[ "$(passes_of US-2)" = "true" ]     && ok "US-2 advanced -> true"             || no "US-2 not marked"
+case "$(subject)" in feat\(US-2\):*) ok "subject is feat(US-2): ..." ;;        *) no "bad US-2 subject: $(subject)";; esac
+
+echo "6) Safe under 'set -e' (no-op path AND mark path must not abort the loop)"
+( set -e; harness_complete_story pass US-3 "$TMP/prd.json" "$TMP" 6 ) && ok "set -e safe on no-op path" || no "set -e aborted on no-op path"
+( set -e; harness_complete_story pass US-4 "$TMP/prd.json" "$TMP" 6 ) && ok "set -e safe on mark path"  || no "set -e aborted on mark path"
+[ "$(passes_of US-4)" = "true" ] && ok "US-4 marked under set -e" || no "US-4 not marked under set -e"
+
+echo ""
+echo "  RESULT: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

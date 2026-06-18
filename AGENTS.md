@@ -57,3 +57,21 @@ python3 -c "import json; d=json.load(open('prd.json')); print('Duplicates found!
 - Apply *all* critical fixes Aider suggests.
 - If Aider reports a reusable pattern (e.g., anti-pattern), add it here.
 - If Aider finds a blocker you cannot fix: document in this file and EXIT (no commit).
+
+## 6. Harness behavior — the LOOP owns completion & metrics (read this)
+
+- **You don't have to flip `passes:true` yourself.** On a review PASS the loop
+  flips `passes:true` in the **root** `prd.json`, appends `progress.txt`, and
+  commits `feat(<STORY_ID>)` for the story it assigned this iteration. Still do
+  your own bookkeeping when you can — it's idempotent, the loop no-ops if you
+  already did it — but a missed jq update no longer strands the story forever.
+  (Operator can disable loop-owned completion with `RALPH_NO_AUTO_PASS=1`.)
+- **The review gate REVIEW-FAILs an iteration that changed no CODE.** An empty /
+  no-op diff, or a commit that touches only bookkeeping files (`prd.json`,
+  `progress.txt`, `.ralph-metrics.jsonl`, `.ralph-cost.log`, `.last-branch`), is
+  rejected — you cannot "complete" a story by only marking it done. Write the
+  actual code. (Genuine no-code story: operator sets `RALPH_ALLOW_EMPTY_DIFF=1`.)
+- **`prd.json` lives at the repo ROOT**, not next to the scripts. Always update
+  the root `prd.json` with the safe jq pattern in section 4.
+- **Metrics are automatic.** Every codegen/review call appends one JSON record to
+  `.ralph-metrics.jsonl` (gitignored). Don't hand-write it; don't commit it.

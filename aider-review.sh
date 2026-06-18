@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# REAL per-call review metrics (replaces the old .ralph-cost.log cost-grep line).
+# metrics-lib.sh emits one tagged JSON record per review call to
+# .ralph-metrics.jsonl. No-op stub if the lib is absent.
+_AR_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_AR_LIB_DIR/metrics-lib.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$_AR_LIB_DIR/metrics-lib.sh"
+fi
+if ! type ralph_metrics_log_review >/dev/null 2>&1; then ralph_metrics_log_review() { :; }; fi
+
 # ---------------------------------------------------------------------------
 # Aider Review — provider-agnostic
 #
@@ -45,6 +55,49 @@ fi
 if [ "${SKIP_AIDER_REVIEW:-0}" = "1" ]; then
   echo "⏭️  SKIP_AIDER_REVIEW=1 — skipping aider review step"
   exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Review-gate hardening — a story is "done" only if it actually changed CODE.
+#
+# Runs BEFORE the reviewer-model checks on purpose: the loop treats this script's
+# exit 0 as PASS, and several reviewer-unavailable paths below exit 0 (skip). If
+# an iteration produced NO substantive code change — an errored / zero-output
+# codegen, or a commit that only touches bookkeeping files (prd.json,
+# progress.txt, the metrics/cost logs, .last-branch) such as the harness's own
+# "mark passes:true" commit — a PASS would be a FALSE completion. (This is exactly
+# the bug that scored an errored run a false 13/13.) So gate it here, hard, so it
+# REVIEW-FAILs even when no reviewer model is configured/reachable.
+#
+# "This iteration's work" = commits since RALPH_BASE_SHA (HEAD captured by
+# ralph.sh BEFORE the agent ran) PLUS the current working tree. Run standalone
+# with no RALPH_BASE_SHA, it falls back to the latest commit. Opt out for a
+# genuine no-code story with RALPH_ALLOW_EMPTY_DIFF=1.
+# ---------------------------------------------------------------------------
+_AR_BOOKKEEPING_RE='(^|/)(prd\.json|progress\.txt|\.last-branch|\.ralph-cost\.log|\.ralph-metrics\.jsonl)$'
+
+_ar_iteration_files() {
+  if [ -n "${RALPH_BASE_SHA:-}" ] && git rev-parse --verify "${RALPH_BASE_SHA}^{commit}" >/dev/null 2>&1; then
+    git diff --name-only "${RALPH_BASE_SHA}..HEAD" 2>/dev/null || true   # committed this iteration
+  else
+    git show --name-only --format= HEAD 2>/dev/null || true              # standalone: latest commit
+  fi
+  git diff --name-only HEAD 2>/dev/null || true                          # + still-uncommitted
+  git ls-files --others --exclude-standard 2>/dev/null || true           # + untracked
+}
+
+if [ "${RALPH_ALLOW_EMPTY_DIFF:-0}" != "1" ]; then
+  _AR_SUBSTANTIVE="$(_ar_iteration_files | sed '/^[[:space:]]*$/d' | sort -u | grep -vE "$_AR_BOOKKEEPING_RE" || true)"
+  if [ -z "$(printf '%s' "$_AR_SUBSTANTIVE" | tr -d '[:space:]')" ]; then
+    echo -e "\033[31m❌ Review gate: REVIEW-FAIL — no substantive code change to review.\033[0m"
+    echo "   This iteration's diff is empty or touches ONLY bookkeeping files"
+    echo "   (prd.json / progress.txt / .ralph-metrics.jsonl / .ralph-cost.log / .last-branch)."
+    echo "   A story that flips passes:true without implementing code is a FALSE completion —"
+    echo "   the gate refuses it. Genuine no-code story? Re-run with RALPH_ALLOW_EMPTY_DIFF=1."
+    _AR_EP_GUESS=cloud; case "${AIDER_REVIEW_MODEL:-}" in ""|openai/*) _AR_EP_GUESS=local;; esac
+    ralph_metrics_log_review "${AIDER_REVIEW_MODEL:-local-review}" "$_AR_EP_GUESS" "FAIL" "0" /dev/null || true
+    exit 1
+  fi
 fi
 
 # Verify aider is installed
@@ -130,10 +183,20 @@ if [ -n "$UNTRACKED" ]; then
 $(cat "$_f" 2>/dev/null)"
   done <<< "$UNTRACKED"
 fi
-# Fall back to the latest commit when nothing is pending (review after commit).
+# Fall back to this iteration's COMMITTED changes when nothing is pending (the
+# loop auto-commits before review). Prefer the exact iteration range when ralph.sh
+# exported RALPH_BASE_SHA (HEAD before the agent ran) so the reviewer sees ALL of
+# this iteration's commits; else the latest commit.
 if [ -z "$(printf '%s' "$REVIEW_DIFF" | tr -d '[:space:]')" ]; then
-  REVIEW_DIFF="(no uncommitted changes; reviewing the latest commit)
+  if [ -n "${RALPH_BASE_SHA:-}" ] && git rev-parse --verify "${RALPH_BASE_SHA}^{commit}" >/dev/null 2>&1 \
+     && [ "$(git rev-parse "${RALPH_BASE_SHA}" 2>/dev/null)" != "$(git rev-parse HEAD 2>/dev/null)" ]; then
+    REVIEW_DIFF="(no uncommitted changes; reviewing this iteration's commits ${RALPH_BASE_SHA:0:8}..HEAD)
+$(git diff --stat "${RALPH_BASE_SHA}..HEAD" 2>/dev/null)
+$(git diff "${RALPH_BASE_SHA}..HEAD" 2>/dev/null)"
+  else
+    REVIEW_DIFF="(no uncommitted changes; reviewing the latest commit)
 $(git show --stat --patch HEAD 2>/dev/null)"
+  fi
 fi
 # Cap size so a large diff doesn't blow the context window.
 REVIEW_DIFF="$(printf '%s' "$REVIEW_DIFF" | head -c 150000)"
@@ -143,6 +206,7 @@ echo "🔍 Running Aider review  model=$REVIEW_MODEL  ($(printf '%s' "$REVIEW_DI
 REVIEW_OUTPUT=$(mktemp)
 trap "rm -f $REVIEW_OUTPUT" EXIT
 
+_AR_T0=$(date +%s)
 set +e
 aider \
   --model "$REVIEW_MODEL" \
@@ -160,13 +224,17 @@ $REVIEW_DIFF" 2>&1 | tee "$REVIEW_OUTPUT"
 AIDER_EXIT=${PIPESTATUS[0]}
 set -e
 
-# Record the review's own cost as a separate phase so review spend can be
-# tallied apart from the coding run. Aider prints a "Cost: $X.XX ..." line;
-# logged as NA when not parseable. Same .ralph-cost.log next to this script.
-REVIEW_COST_LOG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.ralph-cost.log"
-REVIEW_COST=$(grep -oiE 'cost[^0-9$]*\$?[0-9]+\.[0-9]+' "$REVIEW_OUTPUT" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | tail -1)
-printf "%s\tphase=review\ttool=aider\tmodel=%s\tactual_cost_usd=%s\n" \
-  "$(date +%Y-%m-%dT%H:%M:%S%z)" "$REVIEW_MODEL" "${REVIEW_COST:-NA}" >> "$REVIEW_COST_LOG" 2>/dev/null || true
+# REAL per-call review metrics → .ralph-metrics.jsonl (one self-tagged record):
+# the verdict (PASS/FAIL) plus REAL tokens+cost from aider's printed
+# "Tokens: … Cost: $…" line, or — when reviewing on OpenRouter — the
+# authoritative generation-by-id endpoint. A local review server = $0. Replaces
+# the old grep-for-"Cost:" estimate that was appended to .ralph-cost.log.
+_AR_DUR=$(( $(date +%s) - _AR_T0 ))
+if grep -q "RESULT: PASS" "$REVIEW_OUTPUT" 2>/dev/null; then _AR_VERDICT="PASS"
+elif grep -q "RESULT: FAIL" "$REVIEW_OUTPUT" 2>/dev/null; then _AR_VERDICT="FAIL"
+else _AR_VERDICT=""; fi
+if [ "${USE_LOCAL:-0}" = "1" ]; then _AR_ENDPOINT="local"; else _AR_ENDPOINT="cloud"; fi
+ralph_metrics_log_review "$REVIEW_MODEL" "$_AR_ENDPOINT" "$_AR_VERDICT" "$_AR_DUR" "$REVIEW_OUTPUT" || true
 
 if grep -q "RESULT: FAIL" "$REVIEW_OUTPUT"; then
   echo "❌ Aider review failed — fix critical issues before committing."
