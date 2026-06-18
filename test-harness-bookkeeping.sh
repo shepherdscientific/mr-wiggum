@@ -11,6 +11,8 @@
 #   4. a story already passes:true (agent self-completed) is a clean no-op
 #   5. the next open story advances independently
 #   6. the block is safe under `set -e` (the shell ralph.sh runs with)
+#   7. best-effort push: fires after a committing PASS, is suppressed by
+#      RALPH_NO_PUSH=1, and a failing push never aborts the loop (set -e safe)
 #
 # Run:  bash scripts/ralph/test-harness-bookkeeping.sh     (exit 0 = all green)
 # ---------------------------------------------------------------------------
@@ -46,6 +48,20 @@ harness_complete_story() {
       git -C "$REPO_ROOT" add -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null || true
       if ! git -C "$REPO_ROOT" diff --cached --quiet -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null; then
         git -C "$REPO_ROOT" commit -m "feat($STORY_ID): ${STORY_TITLE:-complete story} [harness: loop-owned completion on review PASS]" >/dev/null 2>&1 || true
+        # Best-effort per-iteration push (mirrors ralph.sh): push the loop branch
+        # after the feat() commit; a failed push is logged + ignored so it can
+        # never fail the loop. Opt out with RALPH_NO_PUSH=1.
+        if [ "${RALPH_NO_PUSH:-0}" != "1" ]; then
+          local _LOOP_BRANCH
+          _LOOP_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+          if [ -n "$_LOOP_BRANCH" ] && [ "$_LOOP_BRANCH" != "HEAD" ]; then
+            if git -C "$REPO_ROOT" push origin "$_LOOP_BRANCH" >/dev/null 2>&1; then
+              echo "      ⬆️  pushed $_LOOP_BRANCH (feat($STORY_ID))" >&2
+            else
+              echo "      ⚠️  push failed (best-effort, ignored)" >&2
+            fi
+          fi
+        fi
       fi
     fi
   fi
@@ -66,6 +82,20 @@ JSON
 : > "$TMP/progress.txt"
 git -C "$TMP" add -A; git -C "$TMP" commit -qm init
 base=$(git -C "$TMP" rev-list --count HEAD)
+
+# --- mock the push: intercept ONLY `git … push …`, record it, return a
+# configurable rc; every other git call passes through to the real binary so
+# the fixture and assertions are unaffected. Lets us assert the push step fires
+# WITHOUT a real remote, and simulate a push failure (best-effort) safely.
+PUSH_LOG="$TMP/push.log"; : > "$PUSH_LOG"
+MOCK_PUSH_RC=0
+git() {
+  if [ "${3:-}" = "push" ]; then
+    echo "push $*" >> "$PUSH_LOG"
+    return "$MOCK_PUSH_RC"
+  fi
+  command git "$@"
+}
 
 passes_of(){ jq -r --arg id "$1" 'first(.userStories[]|select(.id==$id)|.passes)' "$TMP/prd.json"; }
 commits(){ git -C "$TMP" rev-list --count HEAD; }
@@ -102,6 +132,40 @@ echo "6) Safe under 'set -e' (no-op path AND mark path must not abort the loop)"
 ( set -e; harness_complete_story pass US-3 "$TMP/prd.json" "$TMP" 6 ) && ok "set -e safe on no-op path" || no "set -e aborted on no-op path"
 ( set -e; harness_complete_story pass US-4 "$TMP/prd.json" "$TMP" 6 ) && ok "set -e safe on mark path"  || no "set -e aborted on mark path"
 [ "$(passes_of US-4)" = "true" ] && ok "US-4 marked under set -e" || no "US-4 not marked under set -e"
+
+echo "7) Best-effort push: fires on a committing PASS, respects RALPH_NO_PUSH, never fails the loop"
+# Add fresh open stories so the push path has something to commit.
+_p=$(mktemp); jq '.userStories += [
+  {"id":"US-5","title":"Fifth story","passes":false},
+  {"id":"US-6","title":"Sixth story","passes":false},
+  {"id":"US-7","title":"Seventh story","passes":false}]' "$TMP/prd.json" > "$_p" && mv "$_p" "$TMP/prd.json"
+git -C "$TMP" add -A; git -C "$TMP" commit -qm "add US-5..7"
+
+# (a) a committing PASS also pushes the current loop branch (mock records it)
+: > "$PUSH_LOG"; MOCK_PUSH_RC=0
+harness_complete_story pass US-5 "$TMP/prd.json" "$TMP" 7
+grep -q "push" "$PUSH_LOG" && ok "committing PASS pushed the loop branch" || no "committing PASS did not push"
+
+# (b) RALPH_NO_PUSH=1 suppresses the push but still completes + commits the story
+: > "$PUSH_LOG"; before=$(commits)
+RALPH_NO_PUSH=1 harness_complete_story pass US-6 "$TMP/prd.json" "$TMP" 8
+[ ! -s "$PUSH_LOG" ]               && ok "RALPH_NO_PUSH=1 suppressed the push"  || no "RALPH_NO_PUSH=1 still pushed"
+[ "$(passes_of US-6)" = "true" ]   && ok "US-6 completed with push disabled"    || no "US-6 not completed under RALPH_NO_PUSH"
+[ "$(commits)" = "$((before+1))" ] && ok "US-6 still made its feat commit"      || no "US-6 commit miscount: $(commits)"
+
+# (c) a no-op PASS (already complete) does not push
+: > "$PUSH_LOG"
+harness_complete_story pass US-5 "$TMP/prd.json" "$TMP" 9
+[ ! -s "$PUSH_LOG" ] && ok "no-op PASS did not push" || no "no-op PASS wrongly pushed"
+
+# (d) a FAILING push is non-fatal under set -e and the feat commit still stands
+before=$(commits); : > "$PUSH_LOG"; MOCK_PUSH_RC=1
+( set -e; harness_complete_story pass US-7 "$TMP/prd.json" "$TMP" 10 ) \
+  && ok "failing push is non-fatal under set -e" || no "failing push aborted the loop"
+grep -q "push" "$PUSH_LOG"         && ok "push was attempted before it failed"  || no "push not attempted on US-7"
+[ "$(passes_of US-7)" = "true" ]   && ok "US-7 committed despite push failure"  || no "US-7 not committed on push failure"
+[ "$(commits)" = "$((before+1))" ] && ok "exactly one feat commit despite failed push" || no "commit miscount after failed push: $(commits)"
+MOCK_PUSH_RC=0
 
 echo ""
 echo "  RESULT: $PASS passed, $FAIL failed"

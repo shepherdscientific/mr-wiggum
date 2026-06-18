@@ -696,6 +696,23 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       if ! git -C "$REPO_ROOT" diff --cached --quiet -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null; then
         git -C "$REPO_ROOT" commit -m "feat($STORY_ID): ${STORY_TITLE:-complete story} [harness: loop-owned completion on review PASS]" >/dev/null 2>&1 || true
         echo "  📌 Harness completed $STORY_ID — passes:true, feat() commit, progress logged."
+        # -------------------------------------------------------------------
+        # Best-effort per-iteration push so loop progress is visible REMOTELY
+        # after every completed story — not only at RALPH_ON_COMPLETE. Strictly
+        # best-effort: a failed push (no network / no auth / non-fast-forward)
+        # is logged and IGNORED so it can never fail the loop. Opt out with
+        # RALPH_NO_PUSH=1.
+        # -------------------------------------------------------------------
+        if [ "${RALPH_NO_PUSH:-0}" != "1" ]; then
+          _LOOP_BRANCH=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+          if [ -n "$_LOOP_BRANCH" ] && [ "$_LOOP_BRANCH" != "HEAD" ]; then
+            if git -C "$REPO_ROOT" push origin "$_LOOP_BRANCH" >/dev/null 2>&1; then
+              echo "  ⬆️  Pushed $_LOOP_BRANCH after feat($STORY_ID)."
+            else
+              echo "  ⚠️  Push of $_LOOP_BRANCH failed (best-effort; loop continues; set RALPH_NO_PUSH=1 to disable)."
+            fi
+          fi
+        fi
       fi
     else
       echo "  ↪︎  Harness bookkeeping is a no-op — $STORY_ID already passes:true (agent self-completed)."
