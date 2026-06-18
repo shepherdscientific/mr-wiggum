@@ -24,11 +24,38 @@ set -e
 TOOL="amp"        # Default tool
 MAX_ITERATIONS=10
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PRD_FILE="$SCRIPT_DIR/prd.json"
+# Resolve the repository ROOT. prd.json and the canonical progress log live at
+# the repo root. In the canonical mr-wiggum layout the scripts sit AT the repo
+# root (SCRIPT_DIR == REPO_ROOT); when these scripts are copied into a target
+# repo's subdirectory (e.g. scripts/ralph/), resolving the git toplevel keeps
+# PRD_FILE pointed at the REAL root. Pointing PRD_FILE at $SCRIPT_DIR/prd.json
+# from a subdir silently disables the early-exit / stuck-story guardrails and the
+# per-iteration STORY_ID selection, and under-counts the token estimate.
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR")"
+PRD_FILE="$REPO_ROOT/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
 COST_LOG="$SCRIPT_DIR/.ralph-cost.log"
+METRICS_FILE="$SCRIPT_DIR/.ralph-metrics.jsonl"
+
+# ---------------------------------------------------------------------------
+# REAL per-call metrics (replaces the old est_tokens × stale-rate estimate that
+# was written to .ralph-cost.log). metrics-lib.sh emits ONE tagged JSON record
+# per API call — codegen here, review in aider-review.sh — to
+# .ralph-metrics.jsonl. If the lib is missing, define no-op stubs so the loop
+# behaves exactly as before.
+# ---------------------------------------------------------------------------
+if [ -f "$SCRIPT_DIR/metrics-lib.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/metrics-lib.sh"
+fi
+if ! type ralph_metrics_log_codegen >/dev/null 2>&1; then
+  ralph_metrics_log_codegen() { :; }
+  ralph_metrics_log_review()  { :; }
+  ralph_metrics_power_start() { :; }
+  ralph_metrics_power_stop()  { echo ""; }
+fi
 
 # ---------------------------------------------------------------------------
 # Local↔remote failover configuration (all overridable via env / .env)
@@ -485,6 +512,21 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   wait_for_network
 
   # -------------------------------------------------------------------------
+  # Per-call metrics + review-gate context — captured BEFORE the agent runs:
+  #   • RALPH_BASE_SHA — HEAD before codegen, so the review gate can diff exactly
+  #     THIS iteration's work and REVIEW-FAIL an empty/no-op (errored) iteration
+  #     instead of rubber-stamping a false completion.
+  #   • RALPH_ITER / RALPH_STORY_ID — tag the downstream review metrics record.
+  # Then time the agent call (and sample SoC watts when local) for the codegen
+  # metrics record emitted right after the call (before $TMPOUT is cleaned up).
+  # -------------------------------------------------------------------------
+  export RALPH_ITER="$i" RALPH_STORY_ID="${STORY_ID:-}"
+  export RALPH_BASE_SHA="$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo '')"
+  CODEGEN_WATTS=""
+  if [ "$ENDPOINT" = "local" ]; then ralph_metrics_power_start; fi
+  _CG_T0=$(date +%s)
+
+  # -------------------------------------------------------------------------
   # Run the AI tool
   # -------------------------------------------------------------------------
   case "$TOOL" in
@@ -538,6 +580,13 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       ;;
 
   esac
+
+  CODEGEN_DUR=$(( $(date +%s) - _CG_T0 ))
+  if [ "$ENDPOINT" = "local" ]; then CODEGEN_WATTS="$(ralph_metrics_power_stop)"; fi
+  # REAL per-call codegen metrics → .ralph-metrics.jsonl (logged BEFORE $TMPOUT is
+  # removed below): tokens/cost from opencode telemetry or stdout parse, duration,
+  # endpoint, and MEASURED watts when local. Honest null when a number is unknown.
+  ralph_metrics_log_codegen "$TOOL" "${MODEL:-$TOOL}" "$ENDPOINT" "$i" "${STORY_ID:-}" "$CODEGEN_DUR" "$TMPOUT" "$CODEGEN_WATTS" || true
 
   # Best-effort: record the tool's own reported cost for this iteration. Output
   # formats vary by tool (aider prints "Cost: $X"; others differ) — logged as NA
@@ -597,6 +646,59 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     else
       REVIEW_RESULT="fail"
       echo "  ❌ Review gate reported issues on iteration $i (RESULT: FAIL)."
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # Harness-owned story completion — the LOOP owns bookkeeping, NOT the agent.
+  #
+  # Cheaper / quantized coding models reliably write working code but skip the
+  # git + jq + progress bookkeeping, so the story never flips to passes:true and
+  # the loop re-works the same first-incomplete story forever. When the review
+  # gate PASSES, the loop itself completes the story it set out to work this
+  # iteration ($STORY_ID, captured BEFORE the agent ran): flip passes:true in the
+  # ROOT prd.json, append a progress.txt line, and commit feat(<STORY_ID>). The
+  # agent's code was already committed above (by the agent or the auto-commit).
+  #
+  # Idempotent + non-disruptive to loops whose agent ALREADY self-completes: it
+  # acts ONLY while the target story is still passes:false, and commits ONLY when
+  # the jq edit actually changed prd.json — a clean no-op when the agent already
+  # did the bookkeeping. Fires ONLY on PASS (never FAIL/skip). Opt out entirely
+  # with RALPH_NO_AUTO_PASS=1 (a loop whose agent is trusted to self-report).
+  # -------------------------------------------------------------------------
+  if [ "${RALPH_NO_AUTO_PASS:-0}" != "1" ] && [ "$REVIEW_RESULT" = "pass" ] && \
+     [ -n "${STORY_ID:-}" ] && [ "$STORY_ID" != "unknown" ] && [ -f "$PRD_FILE" ]; then
+    REPO_ROOT="${REPO_ROOT:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR")}"
+    STORY_STILL_OPEN=$(jq -r --arg id "$STORY_ID" \
+      'if any(.userStories[]?; .id == $id and (.passes != true)) then "yes" else "no" end' \
+      "$PRD_FILE" 2>/dev/null || echo "no")
+    if [ "$STORY_STILL_OPEN" = "yes" ]; then
+      STORY_TITLE=$(jq -r --arg id "$STORY_ID" \
+        'first(.userStories[]? | select(.id == $id) | .title) // ""' "$PRD_FILE" 2>/dev/null || echo "")
+      # (a) Flip passes:true for the target story in the ROOT prd.json (atomic
+      #     temp-file write so a crash mid-write can't corrupt the PRD).
+      _PRD_TMP=$(mktemp)
+      if jq --arg id "$STORY_ID" \
+           '(.userStories[]? | select(.id == $id) | .passes) = true' \
+           "$PRD_FILE" > "$_PRD_TMP" 2>/dev/null && [ -s "$_PRD_TMP" ]; then
+        mv "$_PRD_TMP" "$PRD_FILE" 2>/dev/null || rm -f "$_PRD_TMP"
+      else
+        rm -f "$_PRD_TMP"
+      fi
+      # (b) Append a progress.txt entry to the repo-root progress log.
+      printf '%s — %s — %s — completed by harness (review PASS, iteration %s)\n' \
+        "$(date +%Y-%m-%dT%H:%M:%S%z)" "$STORY_ID" "${STORY_TITLE:-untitled}" "$i" \
+        >> "$REPO_ROOT/progress.txt" 2>/dev/null || true
+      # (c) Commit the bookkeeping as feat(<STORY_ID>). Stage ONLY the two
+      #     bookkeeping files and commit ONLY if something is actually staged, so
+      #     a self-completing agent never produces an empty / duplicate commit.
+      git -C "$REPO_ROOT" add -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null || true
+      if ! git -C "$REPO_ROOT" diff --cached --quiet -- "$PRD_FILE" "$REPO_ROOT/progress.txt" 2>/dev/null; then
+        git -C "$REPO_ROOT" commit -m "feat($STORY_ID): ${STORY_TITLE:-complete story} [harness: loop-owned completion on review PASS]" >/dev/null 2>&1 || true
+        echo "  📌 Harness completed $STORY_ID — passes:true, feat() commit, progress logged."
+      fi
+    else
+      echo "  ↪︎  Harness bookkeeping is a no-op — $STORY_ID already passes:true (agent self-completed)."
     fi
   fi
 
