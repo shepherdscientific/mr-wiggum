@@ -1,9 +1,14 @@
 # Ralph working files (generated during runs)
-.env.deepseek
-.env.deepseek-kimi
 prd.json
 progress.txt
 .last-branch
+.ralph-cost.log
+.ralph-metrics.jsonl
+
+# Real env files (secrets) — never commit. Templates (*.example) ARE committed.
+.env
+.env.*
+!*.example
 
 # Archive is optional to commit
 # archive/
