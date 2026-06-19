@@ -187,6 +187,12 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # -------------------------------------------------------------------------
   TMPPROMPT=$(mktemp)
   TMPOUT=$(mktemp)
+  TMPERR=$(mktemp)   # tool stderr (persisted, never `|| true`-discarded)
+  TMPRC=$(mktemp)    # tool real exit code (set -e / pipe safe)
+  STDERR_LOG="$SCRIPT_DIR/.ralph-stderr.log"
+  # HEAD before the agent runs — lets the hard-fail gate below detect a
+  # no-op (zero-diff) iteration and refuse to treat it as completion.
+  RALPH_BASE_SHA="$(git rev-parse HEAD 2>/dev/null || echo '')"
 
   # -------------------------------------------------------------------------
   # Determine whether we can stream output live via /dev/tty.
@@ -206,9 +212,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
     "amp")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/prompt.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        cat "$TMPPROMPT" | amp --dangerously-allow-all 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        { cat "$TMPPROMPT" | amp --dangerously-allow-all 2>"$TMPERR"; echo $? > "$TMPRC"; } | tee /dev/tty > "$TMPOUT" || true; TOOL_EXIT="$(cat "$TMPRC" 2>/dev/null || echo 0)"
       else
-        cat "$TMPPROMPT" | amp --dangerously-allow-all > "$TMPOUT" 2>&1 || true
+        TOOL_EXIT=0; cat "$TMPPROMPT" | amp --dangerously-allow-all > "$TMPOUT" 2>"$TMPERR" || TOOL_EXIT=$?
       fi
       ;;
 
@@ -217,27 +223,27 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       # stdin. Newer versions misparse stdin as structured tool input (ZodError).
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/CLAUDE.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        { claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" 2>"$TMPERR"; echo $? > "$TMPRC"; } | tee /dev/tty > "$TMPOUT" || true; TOOL_EXIT="$(cat "$TMPRC" 2>/dev/null || echo 0)"
       else
-        claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        TOOL_EXIT=0; claude --dangerously-skip-permissions --print "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>"$TMPERR" || TOOL_EXIT=$?
       fi
       ;;
 
     "opencode")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/OPENCODE.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        opencode run "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        { opencode run "$(cat "$TMPPROMPT")" 2>"$TMPERR"; echo $? > "$TMPRC"; } | tee /dev/tty > "$TMPOUT" || true; TOOL_EXIT="$(cat "$TMPRC" 2>/dev/null || echo 0)"
       else
-        opencode run "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        TOOL_EXIT=0; opencode run "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>"$TMPERR" || TOOL_EXIT=$?
       fi
       ;;
 
     "gemini")
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/GEMINI.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        gemini -p "$(cat "$TMPPROMPT")" 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        { gemini -p "$(cat "$TMPPROMPT")" 2>"$TMPERR"; echo $? > "$TMPRC"; } | tee /dev/tty > "$TMPOUT" || true; TOOL_EXIT="$(cat "$TMPRC" 2>/dev/null || echo 0)"
       else
-        gemini -p "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>&1 || true
+        TOOL_EXIT=0; gemini -p "$(cat "$TMPPROMPT")" > "$TMPOUT" 2>"$TMPERR" || TOOL_EXIT=$?
       fi
       ;;
 
@@ -245,9 +251,9 @@ for i in $(seq 1 $MAX_ITERATIONS); do
       # aider reads instructions from a file; prepend agent content inline
       cat "$AGENT_PREFIX_FILE" "$SCRIPT_DIR/AIDER_CODEX.md" > "$TMPPROMPT"
       if $STREAM_LIVE; then
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit 2>&1 | tee /dev/tty > "$TMPOUT" || true
+        { aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit 2>"$TMPERR"; echo $? > "$TMPRC"; } | tee /dev/tty > "$TMPOUT" || true; TOOL_EXIT="$(cat "$TMPRC" 2>/dev/null || echo 0)"
       else
-        aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit > "$TMPOUT" 2>&1 || true
+        TOOL_EXIT=0; aider --model gpt-4o --message-file "$TMPPROMPT" --yes --no-auto-commit > "$TMPOUT" 2>"$TMPERR" || TOOL_EXIT=$?
       fi
       ;;
 
@@ -256,8 +262,16 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # Capture output for completion detection
   OUTPUT=$(cat "$TMPOUT")
 
+  # Persist the codegen tool stderr (do NOT discard it) so a crash / empty-key
+  # startup death is diagnosable. Keep a short tail for the hard-fail message.
+  STDERR_TAIL_TEXT=""
+  if [ -s "$TMPERR" ]; then
+    { echo "=== $(date +%Y-%m-%dT%H:%M:%S%z)  iter=$i  tool=$TOOL  endpoint=${ENDPOINT:-?}  exit=${TOOL_EXIT:-0} ==="; cat "$TMPERR"; echo; } >> "$STDERR_LOG" 2>/dev/null || true
+    STDERR_TAIL_TEXT="$(tail -n 15 "$TMPERR" 2>/dev/null || true)"
+  fi
+
   # Clean up temp files
-  rm -f "$AGENT_PREFIX_FILE" "$TMPPROMPT" "$TMPOUT"
+  rm -f "$AGENT_PREFIX_FILE" "$TMPPROMPT" "$TMPOUT" "$TMPERR" "$TMPRC"
 
   # If not streamed live, print now
   if ! $STREAM_LIVE; then
@@ -269,6 +283,24 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   # -------------------------------------------------------------------------
 
   # Primary: model emits <promise>COMPLETE</promise>
+  # -------------------------------------------------------------------------
+  # HARDENING — a crashed or no-op iteration is NOT a real attempt. TOOL_EXIT is
+  # the tool's REAL exit (no longer `|| true`-swallowed); stderr persisted to
+  # $STDERR_LOG. Non-zero exit OR a zero-diff iteration (bookkeeping/log files
+  # don't count) => skip completion detection and continue, so a crash/no-op
+  # can't be read as COMPLETE. (RALPH_ALLOW_EMPTY_DIFF=1 allows a no-code iter.)
+  # -------------------------------------------------------------------------
+  TOOL_EXIT="${TOOL_EXIT:-0}"
+  _RALPH_BK_RE='(^|/)(prd\.json|progress\.txt|\.last-branch|\.ralph-cost\.log|\.ralph-metrics\.jsonl|\.ralph-stderr\.log)$'
+  RALPH_ITER_CHANGED="$( { git diff --name-only "${RALPH_BASE_SHA:-HEAD}..HEAD" 2>/dev/null; git status --porcelain 2>/dev/null | sed 's/^...//'; } | sed '/^[[:space:]]*$/d' | sort -u | grep -vE "$_RALPH_BK_RE" || true )"
+  if [ "$TOOL_EXIT" != "0" ] || { [ -n "${RALPH_BASE_SHA:-}" ] && [ -z "$(printf '%s' "$RALPH_ITER_CHANGED" | tr -d '[:space:]')" ] && [ "${RALPH_ALLOW_EMPTY_DIFF:-0}" != "1" ]; }; then
+    echo "  ❌ Iteration $i HARD-FAIL: tool exit=$TOOL_EXIT or no-op (zero substantive diff) — skipping completion detection. stderr → $STDERR_LOG"
+    [ -n "${STDERR_TAIL_TEXT:-}" ] && printf '     last stderr:\n%s\n' "$STDERR_TAIL_TEXT" | sed 's/^/       /'
+    echo "Iteration $i complete (HARD-FAIL). Continuing..."
+    sleep 2
+    continue
+  fi
+
   if printf '%s\n' "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
     echo "✅ Ralph completed all tasks at iteration $i of $MAX_ITERATIONS"
